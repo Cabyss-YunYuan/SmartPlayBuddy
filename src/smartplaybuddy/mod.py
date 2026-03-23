@@ -19,22 +19,22 @@ class Mod(wsconnector.Connector):
                 # 解码
                 if type(response) is bytes:
                     task = json.loads(response)
-                    print(f'\033[1;32m{task["operator"]["username"]}: {task}\033[0m')
+                    logger.info(f'\033[1;32m{task["operator"]["username"]}: {task}\033[0m')
                     # 尝试执行任务
                     try:
                         asyncio.create_task(self._task(self.websocket, task))
                     except:
                         await self.websocket.send(json.dumps({"type": "Send", "user": task["operator"]["username"], "device": task["operator"]["devicename"], "error": task}))
-                        print(f"\033[4;33m{response}\033[0m")
+                        logger.error(f"\033[4;33m{response}\033[0m")
                 elif type(response) is str:
-                    print(f'\033[1;34m{response}\033[0m')
+                    logger.info(f'\033[1;34m{response}\033[0m')
         except ConnectionRefusedError:
-            print("无法连接到服务器，请确保服务器已运行")
+            logger.error("无法连接到服务器，请确保服务器已运行")
         except websockets.exceptions.ConnectionClosed as e:
             if e.code != 1000:
-                print(f"连接关闭：代码=\033[4;33m{e.code}\033[0m，原因=\033[4;33m{e.reason}\033[0m")
+                logger.error(f"连接关闭：代码=\033[4;33m{e.code}\033[0m，原因=\033[4;33m{e.reason}\033[0m")
         except websockets.exceptions.ConnectionClosedError:
-            print("与服务器的连接已关闭")
+            logger.error("与服务器的连接已关闭")
 
     @staticmethod
     async def _task(websocket, task):

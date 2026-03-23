@@ -56,20 +56,20 @@ class Client(wsconnector.Connector):
                         else:
                             await self.websocket.send(
                                 json.dumps({"type": "Send", "device": commander, "error": common}))
-                            print(f"\033[4;33m{response}\033[0m")
+                            logger.info(f"\033[4;33m{response}\033[0m")
                     except:
                         await self.websocket.send(
                             json.dumps({"type": "Send", "device": commander, "error": common}))
-                        print(f"\033[4;33m{response}\033[0m")
+                        logger.warn(f"\033[4;33m{response}\033[0m")
                 elif type(response) is str:
-                    print(response)
+                    logger.info(response)
         except ConnectionRefusedError:
-            print("无法连接到服务器，请确保服务器已运行")
+            logger.error("无法连接到服务器，请确保服务器已运行")
         except websockets.exceptions.ConnectionClosed as e:
             if e.code != 1000:
-                print(f"连接关闭：代码=\033[4;33m{e.code}\033[0m，原因=\033[4;33m{e.reason}\033[0m")
+                logger.error(f"连接关闭：代码=\033[4;33m{e.code}\033[0m，原因=\033[4;33m{e.reason}\033[0m")
         except websockets.exceptions.ConnectionClosedError:
-            print("与服务器的连接已关闭")
+            logger.error("与服务器的连接已关闭")
 
 
 def main():
