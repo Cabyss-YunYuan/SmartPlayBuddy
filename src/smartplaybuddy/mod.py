@@ -11,7 +11,7 @@ class Mod(wsconnector.Connector):
     def __init__(self, **config):
         super().__init__(**config)
 
-    async def loop(self):
+    async def main(self):
         try:
             while True:
                 # 从服务器接收信息
@@ -46,7 +46,7 @@ def main():
     async def start():
         logger.info("开始运行...")
         config = {
-            "uri": "ws://smtplay.cabyss.cn:2508/server/ws",
+            "url": "ws://smtplay.cabyss.cn:2508/server/ws",
             "user": {
                 "username": "tests",
                 "password": "123456",

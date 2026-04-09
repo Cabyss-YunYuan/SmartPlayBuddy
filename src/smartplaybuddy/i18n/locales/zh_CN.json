@@ -1,0 +1,24 @@
+{
+  "app": {
+    "name": "智玩搭档"
+  },
+  "message": {
+    "connecting": "正在连接...",
+    "connect_success": "连接成功",
+    "connect_timeout": "连接超时",
+    "connect_server_failed": "无法连接到服务器",
+    "connect_closed": "连接关闭",
+
+    "msg_receive_start": "正在接收消息..."
+  },
+  "command": {
+    "ping": "来自{device}的延迟为: {latency}"
+  },
+  "error": {
+    "task_create_failed": "创建连接任务失败: {error}",
+
+    "connect_closed": "连接关闭：代码={code}，原因={reason}",
+
+    "msg_parse_failed": "消息解析失败: {msg}"
+  }
+}
