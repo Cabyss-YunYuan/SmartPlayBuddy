@@ -9,33 +9,32 @@ log_format = logging.Formatter("%(levelname)-8s|\t%(asctime)s\t%(name)-30s\t%(me
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_format)
 
-class Logger:
-    """日志"""
-    package = "smartplaybuddy"
-    logdir = "logs"
+package = "smartplaybuddy"
+logdir = "logs"
 
-    def __init__(self, name="SmtPlay", level=logging.INFO):
-        root_path = os.path.dirname(importlib.util.find_spec(self.package).submodule_search_locations[0])
+name="SmtPlay"
+level=logging.INFO
+level=logging.DEBUG
 
-        if os.path.basename(root_path) == "src":
-            root_path = os.path.dirname(root_path)
+root_path = os.path.dirname(importlib.util.find_spec(package).submodule_search_locations[0])
 
-        log_path = os.path.join(root_path, self.logdir)
+if os.path.basename(root_path) == "src":
+    root_path = os.path.dirname(root_path)
 
-        if not os.path.exists(log_path):
-            os.makedirs(log_path)
+log_path = os.path.join(root_path, logdir)
 
-        # 日志
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(level)
+if not os.path.exists(log_path):
+    os.makedirs(log_path)
 
-        # 控制台日志
-        self.logger.addHandler(console_handler)
+# 日志
+logger = logging.getLogger(name)
+logger.setLevel(level)
 
-        # 文件日志
-        file_handler = TimedRotatingFileHandler(f"{log_path}/{name}.log", encoding="utf-8", when="D", interval=1, backupCount=30)
-        file_handler.setFormatter(log_format)
-        file_handler.setFormatter(log_format)
-        self.logger.addHandler(file_handler)
+# 控制台日志
+logger.addHandler(console_handler)
 
-logger = Logger()
+# 文件日志
+file_handler = TimedRotatingFileHandler(f"{log_path}/{name}.log", encoding="utf-8", when="D", interval=1, backupCount=30)
+file_handler.setFormatter(log_format)
+file_handler.setFormatter(log_format)
+logger.addHandler(file_handler)

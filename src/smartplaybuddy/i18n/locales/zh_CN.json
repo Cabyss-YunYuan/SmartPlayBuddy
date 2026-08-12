@@ -11,14 +11,33 @@
 
     "msg_receive_start": "正在接收消息..."
   },
-  "command": {
-    "ping": "来自{device}的延迟为: {latency}"
+  "system": {
+    "ping": "来自{device}的延迟为: {latency}",
+
+    "close": "已关闭"
+  },
+  "user": {
+    "login": {
+      "auto_login_success": "自动登录成功，令牌有效期 {expires_in} 秒",
+      "auto_login_failed": "自动登录失败: {error}，将回退到浏览器登录",
+      "opening_browser": "正在打开浏览器进行登录...",
+      "manual_login_hint": "如果无法自动跳转，请手动打开以下链接: {url}",
+      "login_success": "登录成功，令牌有效期 {expires_in} 秒",
+      "tokens_saved": "令牌已保存至系统凭据管理器",
+      "load_tokens_failed": "加载令牌失败: {error}"
+    }
   },
   "error": {
     "task_create_failed": "创建连接任务失败: {error}",
 
     "connect_closed": "连接关闭：代码={code}，原因={reason}",
 
-    "msg_parse_failed": "消息解析失败: {msg}"
+    "msg_parse_failed": "消息解析失败: {msg}",
+    "msg_field_missing": "消息缺少必填字段 [{field}]: {msg}",
+
+    "language_pack_not_found": "未找到语言包 {package1}，默认语言包将使用 {package2}",
+    "translation_not_found": "未找到翻译 {key}",
+
+    "unsupported_data_type": "不支持的Data类型: {type}，值: {value}"
   }
 }

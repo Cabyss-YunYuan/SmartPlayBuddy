@@ -2,7 +2,7 @@ import json
 import importlib.resources
 from .. import log
 
-logger = log.logger.logger.getChild("Translator")
+logger = log.logger.getChild("Translator")
 
 class Translator:
     language: str = "zh_CN"
@@ -22,7 +22,7 @@ class Translator:
             with self.locales_dir.joinpath("en_US.json").open("r", encoding="utf-8") as f:
                 self.default = json.load(f)
         else:
-            logger.warning(f"未找到语言包 en_US，默认语言包将使用 {self.language}")
+            logger.warning(self.translate("error.msg_parse_failed", package1="en_US", package2=self.language))
             self.default = self.translation
 
     def set_language(self, language: str):
@@ -34,7 +34,7 @@ class Translator:
             self.translation = json.load(f)
 
     def translate(self, keys: str, *args, **kwargs):
-        for (lang, text) in [(self.language, self.translation), ("default", self.default)]:
+        for (lang, text) in [(self.language, self.translation.copy()), ("default", self.default.copy())]:
             for key in keys.split("."):
                 if not key or key not in text:
                     break
@@ -47,6 +47,6 @@ class Translator:
                         return str(text).format(*args)
                     else:
                         return str(text)
-            logger.getChild(lang).warning(f"未找到翻译 {keys}")
-        logger.error(f"未找到翻译 {keys}")
+            logger.getChild(lang).warning(self.translate("error.translation_not_found", key=keys))
+        logger.error(self.translate("error.translation_not_found", key=keys))
         raise KeyError(keys)

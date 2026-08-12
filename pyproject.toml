@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.7"
 dependencies = [
     "websockets",
+    "pyautogui",
     "vgamepad",
+    "keyring",
 ]
 
 [tool.setuptools.packages.find]
