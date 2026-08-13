@@ -1,3 +1,5 @@
+VERSION = "v0.0.1"
+
 SERVER_HOST = "http://localhost:8000"
 WS_URL = "ws://localhost:2508/ws"
 # SERVER_HOST = "http://smtplay.cabyss.cn:8082"

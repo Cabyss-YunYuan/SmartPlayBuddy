@@ -15,15 +15,17 @@ class Mod(ws.Connector):
     def __init__(self, **config):
         super().__init__(**config)
 
-    async def main(self, msg: dict) -> None:
+    async def main(self, msg) -> None:
+        print(msg)
 
 
-        pass
-
-
-def main():
+def main(mod:type[Mod] = Mod):
     async def start():
+        from . import config
         from . import user
+
+        import platform
+
 
         tokens = user.refresh_login() or user.login()
         user.save_tokens(tokens)
@@ -36,10 +38,15 @@ def main():
             "status": {
                 "device": {
                     "type": "mod",
+                    "deviceName": "",
+                    "deviceInfo": "",
+                    "platform": platform.platform(),
+                    "machine": platform.machine(),
+                    "appVersion": config.VERSION,
                 }
             }
         }
-        client = Mod(**config)
+        client = mod(**config)
 
         while True:
             await asyncio.sleep(1)

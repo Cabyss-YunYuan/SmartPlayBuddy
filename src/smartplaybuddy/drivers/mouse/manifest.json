@@ -1,0 +1,10 @@
+{
+    "appid": "smartplaybuddy.driver.mouse",
+    "versionCode": "1.0.0",
+    "versionName": "v1.0.0",
+    "name": "mouse",
+    "description": "Mouse driver (pyautogui)",
+    "entry": "driver.py",
+    "requirements": "requirements.txt",
+    "actions": ["mouse"]
+}

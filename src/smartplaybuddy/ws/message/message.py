@@ -1,7 +1,7 @@
 from ...i18n import translate
 from ... import log
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 from typing import Any
 import json
 import base64
@@ -56,6 +56,7 @@ class Message:
     RequestID: str | None = None
     Data: Any = None
     Timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
+    BinaryData: bytes | None = None
 
     @classmethod
     def from_json(cls, d: dict) -> "Message":
@@ -94,8 +95,6 @@ class Message:
         return base64.b64encode(raw).decode("utf-8")
 
     def to_json(self) -> str:
-        logger.debug(f"{self}")
-
         d = {
             "type": self.Type,
             "action": self.Action,
@@ -106,10 +105,11 @@ class Message:
         if self.To is not None:
             d["to"] = self.To
         if self.RequestID is None:
-            d["requestId"] = _generator.generate()
-        else:
-            d["requestId"] = self.RequestID
+            self.RequestID = _generator.generate()
+        d["requestId"] = self.RequestID
         encoded = self._encode_data()
         if encoded is not None:
             d["data"] = encoded
+
+        logger.debug(f"{self}")
         return json.dumps(d)

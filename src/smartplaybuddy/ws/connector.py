@@ -1,7 +1,7 @@
 import asyncio
 import websockets
 import json
-import base64
+from abc import ABC, abstractmethod
 from ..i18n import *
 from .. import log
 from . import logic
@@ -9,7 +9,7 @@ from . import message
 
 logger = log.logger.getChild("Connector")
 
-class Connector:
+class Connector(ABC):
     conn: websockets.ClientConnection
 
     System: "SystemCls"
@@ -29,7 +29,9 @@ class Connector:
         try:
             self.conn = await websockets.connect(
                 self.url,
-                additional_headers=config.get("headers")
+                additional_headers=config.get("headers"),
+                max_size=None,
+                compression=None,
             )
             logger.debug(translate("message.connect_success"))
 
@@ -46,30 +48,57 @@ class Connector:
         except ConnectionRefusedError:
             logger.error(translate("message.connect_server_failed"))
         except websockets.exceptions.ConnectionClosed as e:
-            if e.rcvd.code != 1000:
+            if e.rcvd is not None and e.rcvd.code != 1000:
                 logger.error(translate("error.connect_closed", code=e.rcvd.code, reason=e.rcvd.reason))
             logger.info(translate("message.connect_closed"))
 
     async def loop(self):
+        pending = None
         while True:
-            logger.debug(translate("message.msg_receive_start"))
-            raw = await self.conn.recv()
             try:
-                d = json.loads(raw)
-                msg = message.Message.from_json(d)
-                logger.debug(f"{msg}")
-            except json.decoder.JSONDecodeError:
-                logger.error(translate("error.msg_parse_failed", msg=raw))
-                continue
-            except KeyError as e:
-                logger.error(translate("error.msg_field_missing", field=e.args[0], msg=raw))
-                await self.Error.error(d, To=d.get("from"), RequestID=d.get("requestId"))
-                continue
+                logger.debug(translate("message.msg_receive_start"))
+                raw = await self.conn.recv()
+                logger.debug(f"[connector] Received: type={type(raw).__name__}, size={len(raw) if raw else 0}")
 
-            if msg.Type == "system":
-                logic.system(self, msg)
-            await self.main(msg)
+                if isinstance(raw, bytes):
+                    if pending is not None:
+                        pending.BinaryData = raw
+                        msg = pending
+                        pending = None
+                        logger.debug(f"[connector] Binary paired, Type={msg.Type}, Action={msg.Action}")
+                    else:
+                        logger.error(translate("error.binary_without_text"))
+                        continue
+                else:
+                    try:
+                        d = json.loads(raw)
+                        msg = message.Message.from_json(d)
+                        logger.debug(f"[connector] Parsed: Type={msg.Type}, Action={msg.Action}")
+                    except json.decoder.JSONDecodeError:
+                        logger.error(translate("error.msg_parse_failed", msg=raw))
+                        continue
+                    except KeyError as e:
+                        logger.error(translate("error.msg_field_missing", field=e.args[0], msg=raw))
+                        await self.Error.error(d, To=d.get("from"), RequestID=d.get("requestId"))
+                        continue
 
+                    if isinstance(msg.Data, dict) and msg.Data.pop("__binary__", False):
+                        pending = msg
+                        logger.debug(f"[connector] Set pending, waiting for binary")
+                        continue
+
+                if msg.Type == "system":
+                    logic.system(self, msg)
+                await self.main(msg)
+            except websockets.exceptions.ConnectionClosed:
+                logger.info(translate("message.connect_closed"))
+                break
+            except Exception as e:
+                logger.error(translate("error.loop_exception", error=e), exc_info=True)
+                break
+        logger.info("[connector] Loop exited")
+
+    @abstractmethod
     async def main(self, msg: message.Message) -> None:
         logger.info(msg)
 

@@ -1,0 +1,10 @@
+{
+    "appid": "smartplaybuddy.driver.screen",
+    "versionCode": "1.0.0",
+    "versionName": "v1.0.0",
+    "name": "screen",
+    "description": "High-performance screen capture driver (dxcam)",
+    "entry": "driver.py",
+    "requirements": "requirements.txt",
+    "actions": ["screen"]
+}

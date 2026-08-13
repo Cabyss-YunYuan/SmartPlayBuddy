@@ -1,0 +1,10 @@
+{
+    "appid": "smartplaybuddy.driver.keyboard",
+    "versionCode": "1.0.0",
+    "versionName": "v1.0.0",
+    "name": "keyboard",
+    "description": "Keyboard driver (pyautogui)",
+    "entry": "driver.py",
+    "requirements": "requirements.txt",
+    "actions": ["keyboard"]
+}

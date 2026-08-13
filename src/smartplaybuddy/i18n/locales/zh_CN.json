@@ -27,6 +27,39 @@
       "load_tokens_failed": "加载令牌失败: {error}"
     }
   },
+  "driver": {
+    "not_found": "未找到 '{driver}' 驱动",
+    "no_data": "响应中无数据: {result}",
+    "error": "驱动错误: {message}",
+    "unexpected_resp": "意外响应: {resp}",
+    "failed_to_start": "驱动 '{name}' 启动失败",
+    "started": "驱动已启动: {name}",
+    "stream_started": "流读取已启动: {name}",
+    "process_exited": "驱动 '{name}' 进程意外退出",
+    "action_not_found": "未找到动作 '{action}' 对应的驱动",
+    "bad_status": "驱动 '{name}' 返回异常状态: {status}",
+    "operate_failed": "驱动 '{name}' 操作失败: {error}，stderr: {stderr}",
+    "died": "驱动 '{name}' 已崩溃，stderr:\n{stderr}",
+    "stopped": "驱动已停止: {name}",
+    "installing_dependencies": "正在为 '{name}' 安装依赖...",
+    "install_dependencies_failed": "安装依赖失败: {error}",
+    "no_python_runtime": "未找到 Python 运行时，跳过依赖安装",
+    "discovered": "发现驱动: {name} ({path})",
+    "manifest_missing_fields": "驱动 '{name}' 的 manifest 缺少必填字段: {fields}",
+    "manifest_read_failed": "读取驱动 '{name}' 的 manifest 失败: {error}"
+  },
+  "client": {
+    "response_sent": "响应已发送: {size} 字节 → {to}",
+    "key_error": "KeyError: {error}",
+    "main_exception": "main 处理异常: {error}",
+    "stream_forward_error": "流转发失败: {error}",
+    "stream_started": "流模式已启动: {action}",
+    "stream_stopped": "流模式已停止: {action}",
+    "stream_start_failed": "流模式启动失败: {action}, 响应: {resp}",
+    "exception_in_main": "main 处理异常: {type}: {error}",
+    "invalid_data_type": "无效的数据类型",
+    "invalid_message_type": "无效的消息类型"
+  },
   "error": {
     "task_create_failed": "创建连接任务失败: {error}",
 
@@ -34,6 +67,9 @@
 
     "msg_parse_failed": "消息解析失败: {msg}",
     "msg_field_missing": "消息缺少必填字段 [{field}]: {msg}",
+
+    "binary_without_text": "收到没有前置文本帧的二进制帧，已丢弃",
+    "loop_exception": "消息循环异常: {error}",
 
     "language_pack_not_found": "未找到语言包 {package1}，默认语言包将使用 {package2}",
     "translation_not_found": "未找到翻译 {key}",
