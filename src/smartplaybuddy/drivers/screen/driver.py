@@ -14,17 +14,17 @@ class ScreenDriver(BaseDriver):
 
     def __init__(self):
         self._cameras: Dict[Tuple[int, int], Any] = {}
-        self._streaming = False
-        self._stream_config: dict = {}
+        self._streams: Dict[str, dict] = {}
+        self._camera_stream_count: Dict[Tuple[int, int], int] = {}
 
     def start(self):
         pass
 
     def stop(self):
-        self._streaming = False
-        for camera in self._cameras.values():
-            del camera
+        for stream_id in list(self._streams.keys()):
+            self._stop_stream_by_id(stream_id)
         self._cameras.clear()
+        self._camera_stream_count.clear()
 
     def operate(self, command: str, params: dict):
         op = params.get("operate", "capture")
@@ -35,7 +35,7 @@ class ScreenDriver(BaseDriver):
         elif op == "start_stream":
             return self._start_stream(params)
         elif op == "stop_stream":
-            return self._stop_stream()
+            return self._stop_stream(params)
         else:
             raise ValueError(f"Unknown operate: {op}")
 
@@ -71,9 +71,8 @@ class ScreenDriver(BaseDriver):
 
         if fmt == "raw":
             return {
-                "format": "raw",
-                "width": w,
-                "height": h,
+                "status": "ok",
+                "result": {"format": "raw", "width": w, "height": h},
                 "__data__": frame.tobytes(),
                 "__mime__": "image/raw-rgb",
             }
@@ -95,12 +94,142 @@ class ScreenDriver(BaseDriver):
             data = buf.getvalue()
 
         return {
-            "format": fmt,
-            "width": w,
-            "height": h,
+            "status": "ok",
+            "result": {"format": fmt, "width": w, "height": h},
             "__data__": data,
             "__mime__": f"image/{fmt}",
         }
+
+    def _start_stream(self, params: dict) -> dict:
+        stream_id = params.get("stream_id")
+        if not stream_id:
+            return {"status": "error", "message": "stream_id is required"}
+        if stream_id in self._streams:
+            return {"status": "error", "message": f"Stream {stream_id} already exists"}
+
+        device_idx = int(params.get("device_idx", 0))
+        output_idx = int(params.get("output_idx", 0))
+        target_fps = int(params.get("target_fps", 30))
+
+        camera = self._get_camera(device_idx, output_idx)
+        key = (device_idx, output_idx)
+        count = self._camera_stream_count.get(key, 0)
+        if count == 0:
+            camera.start(target_fps=target_fps, video_mode=True)
+        self._camera_stream_count[key] = count + 1
+
+        resolution = params.get("resolution")
+        if isinstance(resolution, str):
+            resolution = [int(v) for v in resolution.lower().split("x", 1)]
+
+        self._streams[stream_id] = {
+            "device_idx": device_idx,
+            "output_idx": output_idx,
+            "target_fps": target_fps,
+            "format": params.get("format", "jpeg"),
+            "quality": int(params.get("quality", 80)),
+            "resolution": resolution,
+            "scale": float(params.get("scale", 1.0)),
+        }
+
+        return {"status": "ok", "result": {"stream_id": stream_id, "target_fps": target_fps}}
+
+    def _stop_stream(self, params: dict) -> dict:
+        stream_id = params.get("stream_id")
+        if not stream_id or stream_id not in self._streams:
+            return {"status": "error", "message": f"Stream {stream_id} not found"}
+
+        self._stop_stream_by_id(stream_id)
+        return {"status": "ok", "result": {"stream_id": stream_id, "message": "Stream stopped"}}
+
+    def _stop_stream_by_id(self, stream_id: str):
+        config = self._streams.pop(stream_id, None)
+        if not config:
+            return
+        key = (config.get("device_idx", 0), config.get("output_idx", 0))
+        count = self._camera_stream_count.get(key, 1) - 1
+        self._camera_stream_count[key] = count
+        if count <= 0:
+            camera = self._get_camera(*key)
+            camera.stop()
+            self._camera_stream_count.pop(key, None)
+
+    def is_streaming(self) -> bool:
+        return bool(self._streams)
+
+    def get_active_streams(self) -> Dict[str, dict]:
+        return dict(self._streams)
+
+    def capture_frames(self) -> list:
+        if not self._streams:
+            return []
+
+        frames = []
+        device_frames = {}
+
+        for stream_id, config in self._streams.items():
+            key = (config["device_idx"], config["output_idx"])
+            if key not in device_frames:
+                camera = self._get_camera(*key)
+                raw = camera.get_latest_frame()
+                device_frames[key] = raw
+
+        raw_frame = None
+        for stream_id, config in self._streams.items():
+            key = (config["device_idx"], config["output_idx"])
+            frame = device_frames.get(key)
+            if frame is None:
+                continue
+
+            encoded = self._encode_frame(frame, config)
+            if encoded:
+                encoded["stream_id"] = stream_id
+                frames.append(encoded)
+
+        return frames
+
+    def _encode_frame(self, frame, config: dict) -> dict | None:
+        import copy
+        f = frame
+        fmt = config["format"]
+        quality = config["quality"]
+        resolution = config.get("resolution")
+        scale = config.get("scale", 1.0)
+
+        if resolution:
+            target_w, target_h = int(resolution[0]), int(resolution[1])
+            h, w = f.shape[:2]
+            if w > target_w or h > target_h:
+                s = min(target_w / w, target_h / h)
+                f = cv2.resize(f, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
+        elif scale != 1.0:
+            h, w = f.shape[:2]
+            f = cv2.resize(f, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+
+        h, w = f.shape[:2]
+
+        if fmt == "raw":
+            return {"status": "ok", "result": {"format": "raw", "width": w, "height": h},
+                    "__data__": f.tobytes(), "__mime__": "image/raw-rgb"}
+
+        if fmt == "jpeg":
+            bgr = cv2.cvtColor(f, cv2.COLOR_RGB2BGR)
+            ok, buf = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+            if not ok:
+                return None
+            data = buf.tobytes()
+        elif fmt == "webp":
+            method = int(config.get("method", 0))
+            buf = io.BytesIO()
+            Image.fromarray(f).save(buf, format="WebP", quality=quality, method=method)
+            data = buf.getvalue()
+        else:
+            buf = io.BytesIO()
+            Image.fromarray(f).save(buf, format="PNG")
+            data = buf.getvalue()
+
+        return {"status": "ok", "result": {"format": fmt, "width": w, "height": h},
+                "__data__": data, "__mime__": f"image/{fmt}"}
 
     def _get_camera(self, device_idx: int, output_idx: int):
         key = (device_idx, output_idx)
@@ -132,113 +261,3 @@ class ScreenDriver(BaseDriver):
                     "refresh_rate": output.refresh_rate,
                 })
         return result
-
-    def _operate(self, cmd: str, params: dict) -> dict:
-        operation = params.get("operate", cmd)
-        if operation == "capture":
-            return self._capture(params)
-        elif operation == "start_stream":
-            return self._start_stream(params)
-        elif operation == "stop_stream":
-            return self._stop_stream()
-        else:
-            return {"status": "error", "message": f"Unknown command: {operation}"}
-
-    def _start_stream(self, params: dict) -> dict:
-        if self._streaming:
-            return {"status": "error", "message": "Already streaming"}
-        
-        device_idx = int(params.get("device_idx", 0))
-        output_idx = int(params.get("output_idx", 0))
-        target_fps = int(params.get("target_fps", 30))
-        
-        camera = self._get_camera(device_idx, output_idx)
-        camera.start(target_fps=target_fps, video_mode=True)
-        
-        resolution = params.get("resolution")
-        if isinstance(resolution, str):
-            resolution = [int(v) for v in resolution.lower().split("x", 1)]
-        
-        self._streaming = True
-        self._stream_config = {
-            "device_idx": device_idx,
-            "output_idx": output_idx,
-            "target_fps": target_fps,
-            "format": params.get("format", "jpeg"),
-            "quality": int(params.get("quality", 80)),
-            "resolution": resolution,
-            "scale": float(params.get("scale", 1.0)),
-        }
-        
-        return {"status": "ok", "result": {"message": "Stream started", "target_fps": target_fps}}
-
-    def _stop_stream(self) -> dict:
-        if not self._streaming:
-            return {"status": "error", "message": "Not streaming"}
-        
-        self._streaming = False
-        device_idx = self._stream_config.get("device_idx", 0)
-        output_idx = self._stream_config.get("output_idx", 0)
-        camera = self._get_camera(device_idx, output_idx)
-        camera.stop()
-        
-        return {"status": "ok", "result": {"message": "Stream stopped"}}
-
-    def is_streaming(self) -> bool:
-        return self._streaming
-
-    def get_stream_config(self) -> dict:
-        return self._stream_config
-
-    def capture_frame(self) -> dict:
-        if not self._streaming:
-            return {"status": "error", "message": "Not streaming"}
-        
-        config = self._stream_config
-        device_idx = config["device_idx"]
-        output_idx = config["output_idx"]
-        camera = self._get_camera(device_idx, output_idx)
-        frame = camera.get_latest_frame()
-        
-        if frame is None:
-            raise RuntimeError("Failed to capture frame")
-        
-        fmt = config["format"]
-        quality = config["quality"]
-        resolution = config.get("resolution")
-        scale = config["scale"]
-        
-        if resolution:
-            target_w, target_h = int(resolution[0]), int(resolution[1])
-            h, w = frame.shape[:2]
-            if w > target_w or h > target_h:
-                s = min(target_w / w, target_h / h)
-                frame = cv2.resize(frame, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
-        elif scale != 1.0:
-            h, w = frame.shape[:2]
-            frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-        
-        h, w = frame.shape[:2]
-        
-        if fmt == "raw":
-            return {"status": "ok", "result": {"format": "raw", "width": w, "height": h},
-                    "__data__": frame.tobytes(), "__mime__": "image/raw-rgb"}
-        
-        if fmt == "jpeg":
-            bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            ok, buf = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
-            if not ok:
-                raise RuntimeError("JPEG encode failed")
-            data = buf.tobytes()
-        elif fmt == "webp":
-            method = int(config.get("method", 0))
-            buf = io.BytesIO()
-            Image.fromarray(frame).save(buf, format="WebP", quality=quality, method=method)
-            data = buf.getvalue()
-        else:
-            buf = io.BytesIO()
-            Image.fromarray(frame).save(buf, format="PNG")
-            data = buf.getvalue()
-        
-        return {"status": "ok", "result": {"format": fmt, "width": w, "height": h},
-                "__data__": data, "__mime__": f"image/{fmt}"}

@@ -57,6 +57,7 @@ class Message:
     Data: Any = None
     Timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
     BinaryData: bytes | None = None
+    Binary: bool = False
 
     @classmethod
     def from_json(cls, d: dict) -> "Message":
@@ -92,7 +93,7 @@ class Message:
         else:
             logger.error(translate("error.unsupported_data_type", type=type(self.Data).__name__, value=self.Data))
             return None
-        return base64.b64encode(raw).decode("utf-8")
+        return base64.b64encode(raw).decode("ascii")
 
     def to_json(self) -> str:
         d = {
@@ -107,6 +108,8 @@ class Message:
         if self.RequestID is None:
             self.RequestID = _generator.generate()
         d["requestId"] = self.RequestID
+        if self.Binary:
+            d["binary"] = True
         encoded = self._encode_data()
         if encoded is not None:
             d["data"] = encoded

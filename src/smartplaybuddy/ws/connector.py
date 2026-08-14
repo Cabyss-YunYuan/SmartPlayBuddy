@@ -41,7 +41,6 @@ class Connector(ABC):
 
             await self.Session.claims(config.get("status"))
 
-            # 开始接收消息循环
             await self.loop()
         except TimeoutError:
             logger.error(translate("message.connect_timeout"))
@@ -51,21 +50,25 @@ class Connector(ABC):
             if e.rcvd is not None and e.rcvd.code != 1000:
                 logger.error(translate("error.connect_closed", code=e.rcvd.code, reason=e.rcvd.reason))
             logger.info(translate("message.connect_closed"))
+        finally:
+            self.on_close()
+
+    def on_close(self):
+        pass
 
     async def loop(self):
         pending = None
         while True:
             try:
-                logger.debug(translate("message.msg_receive_start"))
                 raw = await self.conn.recv()
-                logger.debug(f"[connector] Received: type={type(raw).__name__}, size={len(raw) if raw else 0}")
 
                 if isinstance(raw, bytes):
+                    logger.debug(translate("connector.binary_received", size=len(raw)))
                     if pending is not None:
                         pending.BinaryData = raw
                         msg = pending
                         pending = None
-                        logger.debug(f"[connector] Binary paired, Type={msg.Type}, Action={msg.Action}")
+                        logger.debug(translate("connector.binary_paired", type=msg.Type, action=msg.Action))
                     else:
                         logger.error(translate("error.binary_without_text"))
                         continue
@@ -73,7 +76,7 @@ class Connector(ABC):
                     try:
                         d = json.loads(raw)
                         msg = message.Message.from_json(d)
-                        logger.debug(f"[connector] Parsed: Type={msg.Type}, Action={msg.Action}")
+                        logger.debug(translate("connector.msg_received", msg=msg))
                     except json.decoder.JSONDecodeError:
                         logger.error(translate("error.msg_parse_failed", msg=raw))
                         continue
@@ -82,9 +85,20 @@ class Connector(ABC):
                         await self.Error.error(d, To=d.get("from"), RequestID=d.get("requestId"))
                         continue
 
+                    if isinstance(msg.Data, str):
+                        import base64 as _b64
+                        try:
+                            decoded = json.loads(_b64.b64decode(msg.Data).decode("utf-8"))
+                            msg.Data = decoded
+                        except Exception:
+                            try:
+                                msg.Data = json.loads(msg.Data)
+                            except (json.JSONDecodeError, ValueError):
+                                pass
+
                     if isinstance(msg.Data, dict) and msg.Data.pop("__binary__", False):
                         pending = msg
-                        logger.debug(f"[connector] Set pending, waiting for binary")
+                        logger.debug(translate("connector.pending_set"))
                         continue
 
                 if msg.Type == "system":
@@ -96,7 +110,7 @@ class Connector(ABC):
             except Exception as e:
                 logger.error(translate("error.loop_exception", error=e), exc_info=True)
                 break
-        logger.info("[connector] Loop exited")
+        logger.debug(translate("connector.loop_exited"))
 
     @abstractmethod
     async def main(self, msg: message.Message) -> None:

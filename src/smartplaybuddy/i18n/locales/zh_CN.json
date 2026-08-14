@@ -16,6 +16,14 @@
 
     "close": "已关闭"
   },
+  "connector": {
+    "binary_received": "收到二进制帧: {size} 字节",
+    "msg_received": "收到消息: {msg}",
+    "binary_paired": "二进制帧已配对: type={type}, action={action}",
+    "msg_parsed": "消息已解析: type={type}, action={action}",
+    "pending_set": "已设置等待: 等待二进制帧",
+    "loop_exited": "消息循环已退出"
+  },
   "user": {
     "login": {
       "auto_login_success": "自动登录成功，令牌有效期 {expires_in} 秒",
@@ -34,13 +42,14 @@
     "unexpected_resp": "意外响应: {resp}",
     "failed_to_start": "驱动 '{name}' 启动失败",
     "started": "驱动已启动: {name}",
-    "stream_started": "流读取已启动: {name}",
+    "stream_started": "流 '{stream_id}' 已启动: {name}",
     "process_exited": "驱动 '{name}' 进程意外退出",
     "action_not_found": "未找到动作 '{action}' 对应的驱动",
     "bad_status": "驱动 '{name}' 返回异常状态: {status}",
     "operate_failed": "驱动 '{name}' 操作失败: {error}，stderr: {stderr}",
     "died": "驱动 '{name}' 已崩溃，stderr:\n{stderr}",
     "stopped": "驱动已停止: {name}",
+    "stream_stopped": "流 '{stream_id}' 已停止: {name}",
     "installing_dependencies": "正在为 '{name}' 安装依赖...",
     "install_dependencies_failed": "安装依赖失败: {error}",
     "no_python_runtime": "未找到 Python 运行时，跳过依赖安装",
@@ -54,8 +63,9 @@
     "main_exception": "main 处理异常: {error}",
     "stream_forward_error": "流转发失败: {error}",
     "stream_started": "流模式已启动: {action}",
-    "stream_stopped": "流模式已停止: {action}",
+    "stream_stopped": "流已停止: {action}, stream_id={stream_id}, sender={sender}",
     "stream_start_failed": "流模式启动失败: {action}, 响应: {resp}",
+    "all_streams_stopped": "连接已断开，所有流已停止",
     "exception_in_main": "main 处理异常: {type}: {error}",
     "invalid_data_type": "无效的数据类型",
     "invalid_message_type": "无效的消息类型"

@@ -14,11 +14,9 @@ try:
 
     logger = log.logger.getChild("Registry")
 
-    # host.py 脚本路径
     HOST_SCRIPT = Path(__file__).parent / "host.py"
 
 except ImportError:
-    # 子进程上下文中 drivers 是顶层包，无法相对导入
     def translate(key: str, **kwargs) -> str:
         return key
     import logging
@@ -42,7 +40,12 @@ class DriverProcess:
             creationflags=_CREATION_NO_WINDOW,
         )
         self._ready = False
-        self._recv_lock = threading.Lock()
+        self._resp_queue = queue.Queue()
+        self._stream_callbacks: Dict[str, Callable] = {}
+        self._send_lock = threading.Lock()
+
+        self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+        self._reader_thread.start()
 
         resp = self._recv()
         if not resp or resp.get("status") != "ready":
@@ -50,26 +53,6 @@ class DriverProcess:
             raise RuntimeError(translate("driver.failed_to_start", name=name))
         self._ready = True
         logger.info(translate("driver.started", name=name))
-
-    def _recv(self) -> dict:
-        with self._recv_lock:
-            header = self._read_exact(_HEADER_SIZE)
-            if not header:
-                return None
-            _, json_len, bin_len = struct.unpack(_HEADER_FMT, header)
-            json_bytes = self._read_exact(json_len)
-            if not json_bytes:
-                return None
-            msg = json.loads(json_bytes.decode("utf-8"))
-            if bin_len > 0:
-                msg["__data__"] = self._read_exact(bin_len)
-            return msg
-
-    def _send(self, msg: dict):
-        json_bytes = json.dumps(msg, ensure_ascii=False).encode("utf-8")
-        header = struct.pack(_HEADER_FMT, 0, len(json_bytes), 0)
-        self._process.stdin.write(header + json_bytes)
-        self._process.stdin.flush()
 
     def _read_exact(self, n: int) -> bytes | None:
         buf = b""
@@ -80,33 +63,67 @@ class DriverProcess:
             buf += chunk
         return buf
 
+    def _recv(self) -> dict:
+        try:
+            return self._resp_queue.get(timeout=10)
+        except queue.Empty:
+            return None
+
+    def _reader_loop(self):
+        while True:
+            header = self._read_exact(_HEADER_SIZE)
+            if not header:
+                break
+            _, json_len, bin_len = struct.unpack(_HEADER_FMT, header)
+            json_bytes = self._read_exact(json_len)
+            if not json_bytes:
+                break
+            msg = json.loads(json_bytes.decode("utf-8"))
+            if bin_len > 0:
+                msg["__data__"] = self._read_exact(bin_len)
+
+            if msg.get("status") == "ok" and msg.get("type") == "stream":
+                stream_id = msg.get("stream_id", "")
+                cb = self._stream_callbacks.get(stream_id)
+                if cb:
+                    try:
+                        cb({
+                            "Type": "stream",
+                            "Action": self.name,
+                            "RequestID": stream_id,
+                            "Data": msg.get("result", {}),
+                            "BinaryData": msg.get("__data__"),
+                        })
+                    except Exception:
+                        pass
+            else:
+                self._resp_queue.put(msg)
+
+    def _send(self, msg: dict):
+        json_bytes = json.dumps(msg, ensure_ascii=False).encode("utf-8")
+        header = struct.pack(_HEADER_FMT, 0, len(json_bytes), 0)
+        with self._send_lock:
+            self._process.stdin.write(header + json_bytes)
+            self._process.stdin.flush()
+
     def operate(self, action: str, data: dict) -> dict:
         if self._process is None or self._process.poll() is not None:
             raise RuntimeError(translate("driver.process_exited", name=self.name))
 
         payload = json.dumps({"command": "operate", "cmd": action, "params": data}).encode("utf-8")
         header = struct.pack(_HEADER_FMT, _MSG_NORMAL, len(payload), 0)
-        self._process.stdin.write(header + payload)
-        self._process.stdin.flush()
+        with self._send_lock:
+            self._process.stdin.write(header + payload)
+            self._process.stdin.flush()
         return self._recv()
 
-    def start_stream_reader(self, callback):
-        def _reader():
-            while True:
-                try:
-                    msg = self._recv()
-                    if msg and msg.get("status") == "ok" and msg.get("type") == "stream":
-                        callback({
-                            "Type": "stream",
-                            "Action": self.name,
-                            "Data": msg.get("result", {}),
-                            "BinaryData": msg.get("__data__"),
-                        })
-                except Exception:
-                    break
-        t = threading.Thread(target=_reader, daemon=True)
-        t.start()
-        logger.info(translate("driver.stream_started", name=self.name))
+    def register_stream_callback(self, stream_id: str, callback):
+        self._stream_callbacks[stream_id] = callback
+        logger.info(translate("driver.stream_started", name=self.name, stream_id=stream_id))
+
+    def unregister_stream_callback(self, stream_id: str):
+        self._stream_callbacks.pop(stream_id, None)
+        logger.info(translate("driver.stream_stopped", name=self.name, stream_id=stream_id))
 
     def stop(self):
         try:
@@ -308,15 +325,42 @@ class DriverRegistry:
         else:
             return Path(__file__).resolve().parent.parent / "drivers"
 
-    def start_stream(self, action: str, callback):
+    def start_stream(self, action: str, stream_id: str, callback):
         info = self._info.get(action)
         if not info:
             return
         driver_name = info["manifest"]["name"]
         proc = self._procs.get(driver_name)
         if proc:
-            proc.start_stream_reader(callback)
-    
+            proc.register_stream_callback(stream_id, callback)
+
+    def stop_stream(self, action: str, stream_id: str):
+        info = self._info.get(action)
+        if not info:
+            return
+        driver_name = info["manifest"]["name"]
+        proc = self._procs.get(driver_name)
+        if proc:
+            proc.unregister_stream_callback(stream_id)
+            proc.operate("stop_stream", {"operate": "stop_stream", "stream_id": stream_id})
+
+    def stop_all_streams(self, action: str = None):
+        info = self._info.get(action) if action else None
+        if action:
+            if not info:
+                return
+            driver_name = info["manifest"]["name"]
+            proc = self._procs.get(driver_name)
+            if proc:
+                for stream_id in list(proc._stream_callbacks.keys()):
+                    proc.unregister_stream_callback(stream_id)
+                    proc.operate("stop_stream", {"operate": "stop_stream", "stream_id": stream_id})
+        else:
+            for proc in self._procs.values():
+                for stream_id in list(proc._stream_callbacks.keys()):
+                    proc.unregister_stream_callback(stream_id)
+                    proc.operate("stop_stream", {"operate": "stop_stream", "stream_id": stream_id})
+
     def reload(self, name: str):
         if name in self._procs:
             self._procs[name].stop()

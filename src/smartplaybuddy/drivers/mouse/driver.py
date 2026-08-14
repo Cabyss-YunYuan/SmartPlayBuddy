@@ -27,3 +27,4 @@ class MouseDriver(BaseDriver):
         elif op == "scroll":
             _, dy = self._convert(0, float(params["y"]))
             pyautogui.scroll(int(dy))
+        return {"status": "ok"}

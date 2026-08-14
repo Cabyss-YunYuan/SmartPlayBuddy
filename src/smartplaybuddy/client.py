@@ -8,6 +8,7 @@ from .ws import message
 import asyncio
 import json
 import struct
+from typing import Dict, List
 from . import config
 
 logger = log.logger.getChild("Client")
@@ -16,10 +17,18 @@ class Client(ws.Connector):
     def __init__(self, **config):
         super().__init__(**config)
         self._stream_handler = None
-    
+        self._active_streams: Dict[str, Dict[str, List[str]]] = {}
+
     async def main(self, msg) -> None:
         try:
             if msg.Type == "command":
+                if msg.Action == "*" and isinstance(msg.Data, dict) and msg.Data.get("operate") == "stop_stream":
+                    from .drivers import registry as drv_registry
+                    drv_registry.stop_all_streams()
+                    self._active_streams.clear()
+                    logger.info(translate("client.stream_stopped", action="all", stream_id="all", sender=msg.From or "server"))
+                    return
+
                 if msg.Action not in drivers:
                     resp = message.Message(Type="error", Action=msg.Action, To=msg.From, RequestID=msg.RequestID,
                                            Data=translate("driver.not_found", driver=msg.Action), )
@@ -27,24 +36,36 @@ class Client(ws.Connector):
                     logger.warning(translate("client.key_error", error=resp))
                     return
                 
-                # 处理 stop_stream：不等待响应，直接发送
+                # 处理 stop_stream：移除回调并通知驱动
                 if msg.Data.get("operate") == "stop_stream":
                     from .drivers import registry as drv_registry
-                    info = drv_registry._info.get(msg.Action)
-                    if info:
-                        driver_name = info["manifest"]["name"]
-                        proc = drv_registry._procs.get(driver_name)
-                        if proc:
-                            # 直接发送命令，不等待响应
-                            payload = json.dumps({"command": "operate", "cmd": "stop_stream", "params": msg.Data}).encode("utf-8")
-                            header = struct.pack("<BII", 0, len(payload), 0)
-                            proc._process.stdin.write(header + payload)
-                            proc._process.stdin.flush()
-                    logger.info(translate("client.stream_stopped", action=msg.Action))
+                    frm = msg.From
+                    stream_id = msg.Data.get("stream_id")
+                    if frm:
+                        streams = self._active_streams.get(msg.Action, {})
+                        if stream_id:
+                            for f, sids in list(streams.items()):
+                                if stream_id in sids:
+                                    sids.remove(stream_id)
+                                    if not sids:
+                                        streams.pop(f, None)
+                                    break
+                            drv_registry.stop_stream(msg.Action, stream_id)
+                        else:
+                            sids = streams.pop(frm, [])
+                            for sid in sids:
+                                drv_registry.stop_stream(msg.Action, sid)
+                        logger.info(translate("client.stream_stopped", action=msg.Action, stream_id=stream_id or "all", sender=frm))
+                    else:
+                        drv_registry.stop_all_streams(msg.Action)
+                        self._active_streams.pop(msg.Action, None)
+                        logger.info(translate("client.stream_stopped", action=msg.Action, stream_id="all", sender="server"))
                     return
-                
-                # 处理 start_stream：发送响应后启动后台读取
+
+                # 处理 start_stream：发送响应后注册流回调
                 if msg.Data.get("operate") == "start_stream":
+                    stream_id = msg.RequestID
+                    msg.Data["stream_id"] = stream_id
                     resp = drivers[msg.Action](msg.Data)
                     if isinstance(resp, dict) and resp.get("status") == "ok":
                         meta = message.Message(
@@ -57,6 +78,11 @@ class Client(ws.Connector):
                         await self.conn.send(meta.to_json())
 
                         from .drivers import registry as drv_registry
+                        if msg.Action not in self._active_streams:
+                            self._active_streams[msg.Action] = {}
+                        if msg.From not in self._active_streams[msg.Action]:
+                            self._active_streams[msg.Action][msg.From] = []
+                        self._active_streams[msg.Action][msg.From].append(stream_id)
                         original_msg = msg
                         def on_frame(frame_msg):
                             asyncio.run_coroutine_threadsafe(
@@ -64,17 +90,19 @@ class Client(ws.Connector):
                                 self._loop
                             )
                         self._loop = asyncio.get_event_loop()
-                        drv_registry.start_stream(msg.Action, on_frame)
+                        drv_registry.start_stream(msg.Action, stream_id, on_frame)
                     else:
                         logger.error(translate("client.stream_start_failed", action=msg.Action, resp=resp))
                     return
                 
                 if type(msg.Data) is dict:
-                    resp = drivers[msg.Action](msg.Data)
+                    loop = asyncio.get_event_loop()
+                    resp = await loop.run_in_executor(None, drivers[msg.Action], msg.Data)
                 elif type(msg.Data) is list:
                     resp = None
+                    loop = asyncio.get_event_loop()
                     for operator in msg.Data:
-                        resp = drivers[msg.Action](operator)
+                        resp = await loop.run_in_executor(None, drivers[msg.Action], operator)
                 else:
                     await self.Error.error(translate("client.invalid_data_type"), To=msg.From, RequestID=msg.RequestID)
                     return
@@ -91,6 +119,7 @@ class Client(ws.Connector):
                             To=msg.From,
                             RequestID=msg.RequestID,
                             Data=result,
+                            Binary=True,
                         )
                         await self.conn.send(meta.to_json())
                         await self.conn.send(data)
@@ -141,6 +170,14 @@ class Client(ws.Connector):
             To=to,
             Data={**params, "operate": "start_stream"},
         ).to_json())
+
+    def on_close(self):
+        from .drivers import registry as drv_registry
+
+
+        drv_registry.stop_all_streams()
+        self._active_streams.clear()
+        logger.info(translate("client.all_streams_stopped"))
 
 
 def main():

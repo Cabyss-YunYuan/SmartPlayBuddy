@@ -77,7 +77,6 @@ def run_driver(driver_file: str, packages_dir: str = None):
     
     try:
         while True:
-            # 处理命令队列
             while not cmd_queue.empty():
                 msg = cmd_queue.get_nowait()
                 cmd = msg.get("command")
@@ -86,32 +85,36 @@ def run_driver(driver_file: str, packages_dir: str = None):
                         result = driver.operate(msg.get("cmd"), msg.get("params", {}))
                     except Exception as e:
                         result = {"status": "error", "message": str(e)}
-                    _send(result if isinstance(result, dict) else {"status": "ok", "result": result})
+                    if isinstance(result, dict) and "__data__" in result:
+                        mime = result.pop("__mime__", "application/octet-stream")
+                        bin_data = result.pop("__data__")
+                        _send(result, bin_data, mime)
+                    else:
+                        _send(result if isinstance(result, dict) else {"status": "ok", "result": result})
                 elif cmd == "stop":
                     driver.stop()
                     return
-            
-            if hasattr(driver, 'is_streaming') and driver.is_streaming():
+
+            if hasattr(driver, 'is_streaming') and driver.is_streaming() and hasattr(driver, 'capture_frames'):
                 try:
-                    frame_result = driver.capture_frame()
-                    if isinstance(frame_result, dict) and frame_result.get("status") == "ok":
+                    frame_results = driver.capture_frames()
+                    for frame_result in frame_results:
                         if "__data__" in frame_result:
+                            stream_id = frame_result.pop("stream_id", "")
                             mime = frame_result.pop("__mime__", "application/octet-stream")
                             bin_data = frame_result.pop("__data__")
-                            _send({"status": "ok", "type": "stream", "result": frame_result.get("result")}, bin_data, mime)
-                        else:
-                            _send(frame_result)
+                            _send({"status": "ok", "type": "stream", "stream_id": stream_id, "result": frame_result.get("result")}, bin_data, mime)
+
+                    streams = driver.get_active_streams()
+                    if streams:
+                        target_fps = max(s.get("target_fps", 30) for s in streams.values())
                     else:
-                        _send(frame_result)
-                    
-                    config = driver.get_stream_config()
-                    target_fps = config.get("target_fps", 30)
+                        target_fps = 30
                     time.sleep(1.0 / target_fps)
                 except Exception as e:
                     _send({"status": "error", "message": str(e)})
                     time.sleep(0.1)
             else:
-                # 非流模式，等待命令
                 try:
                     msg = cmd_queue.get(timeout=0.1)
                     cmd = msg.get("command")
@@ -120,7 +123,12 @@ def run_driver(driver_file: str, packages_dir: str = None):
                             result = driver.operate(msg.get("cmd"), msg.get("params", {}))
                         except Exception as e:
                             result = {"status": "error", "message": str(e)}
-                        _send(result if isinstance(result, dict) else {"status": "ok", "result": result})
+                        if isinstance(result, dict) and "__data__" in result:
+                            mime = result.pop("__mime__", "application/octet-stream")
+                            bin_data = result.pop("__data__")
+                            _send(result, bin_data, mime)
+                        else:
+                            _send(result if isinstance(result, dict) else {"status": "ok", "result": result})
                     elif cmd == "stop":
                         driver.stop()
                         return
