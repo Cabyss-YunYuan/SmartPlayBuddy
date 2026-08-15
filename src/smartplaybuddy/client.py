@@ -1,23 +1,28 @@
+"""
+客户端主模块。
+继承 Connector，处理服务端下发的 command/error/stream 消息，
+调度本地驱动执行并将结果回传。支持流式帧转发。
+"""
 from . import ws
-from .i18n import *
+from . import i18n
 from . import log
 from .config import WS_URL
 from .drivers import drivers
-from .ws import message
 
 import asyncio
-import json
-import struct
-from typing import Dict, List
-from . import config
+from typing import Dict
 
 logger = log.logger.getChild("Client")
 
 class Client(ws.Connector):
+    """业务客户端：接收服务端指令 → 调用本地驱动 → 回传结果。"""
+
     def __init__(self, **config):
         super().__init__(**config)
         self._stream_handler = None
-        self._active_streams: Dict[str, Dict[str, List[str]]] = {}
+        self._loop = asyncio.get_event_loop()
+        # 活跃流记录: {action: {from: [stream_id, ...]}}
+        self._active_streams: Dict[str, Dict[str, list[str]]] = {}
 
     async def main(self, msg) -> None:
         try:
@@ -26,14 +31,14 @@ class Client(ws.Connector):
                     from .drivers import registry as drv_registry
                     drv_registry.stop_all_streams()
                     self._active_streams.clear()
-                    logger.info(translate("client.stream_stopped", action="all", stream_id="all", sender=msg.From or "server"))
+                    logger.info(i18n.translate("client.stream_stopped", action="all", stream_id="all", sender=msg.From or "server"))
                     return
 
                 if msg.Action not in drivers:
-                    resp = message.Message(Type="error", Action=msg.Action, To=msg.From, RequestID=msg.RequestID,
-                                           Data=translate("driver.not_found", driver=msg.Action), )
+                    resp = self.Message(Type="error", Action=msg.Action, To=msg.From, RequestID=msg.RequestID,
+                                           Data=i18n.translate("driver.not_found", driver=msg.Action), )
                     await self.conn.send(resp.to_json())
-                    logger.warning(translate("client.key_error", error=resp))
+                    logger.warning(i18n.translate("client.key_error", error=resp))
                     return
                 
                 # 处理 stop_stream：移除回调并通知驱动
@@ -55,11 +60,11 @@ class Client(ws.Connector):
                             sids = streams.pop(frm, [])
                             for sid in sids:
                                 drv_registry.stop_stream(msg.Action, sid)
-                        logger.info(translate("client.stream_stopped", action=msg.Action, stream_id=stream_id or "all", sender=frm))
+                        logger.info(i18n.translate("client.stream_stopped", action=msg.Action, stream_id=stream_id or "all", sender=frm))
                     else:
                         drv_registry.stop_all_streams(msg.Action)
                         self._active_streams.pop(msg.Action, None)
-                        logger.info(translate("client.stream_stopped", action=msg.Action, stream_id="all", sender="server"))
+                        logger.info(i18n.translate("client.stream_stopped", action=msg.Action, stream_id="all", sender="server"))
                     return
 
                 # 处理 start_stream：发送响应后注册流回调
@@ -68,7 +73,7 @@ class Client(ws.Connector):
                     msg.Data["stream_id"] = stream_id
                     resp = drivers[msg.Action](msg.Data)
                     if isinstance(resp, dict) and resp.get("status") == "ok":
-                        meta = message.Message(
+                        meta = self.Message(
                             Type="response",
                             Action=msg.Action,
                             To=msg.From,
@@ -80,21 +85,21 @@ class Client(ws.Connector):
                         from .drivers import registry as drv_registry
                         if msg.Action not in self._active_streams:
                             self._active_streams[msg.Action] = {}
-                        if msg.From not in self._active_streams[msg.Action]:
-                            self._active_streams[msg.Action][msg.From] = []
-                        self._active_streams[msg.Action][msg.From].append(stream_id)
+                        frm = msg.From or ""
+                        if frm not in self._active_streams[msg.Action]:
+                            self._active_streams[msg.Action][frm] = []
+                        self._active_streams[msg.Action][frm].append(stream_id)
                         original_msg = msg
                         def on_frame(frame_msg):
                             asyncio.run_coroutine_threadsafe(
                                 self._forward_stream(frame_msg, original_msg),
                                 self._loop
                             )
-                        self._loop = asyncio.get_event_loop()
                         drv_registry.start_stream(msg.Action, stream_id, on_frame)
                     else:
-                        logger.error(translate("client.stream_start_failed", action=msg.Action, resp=resp))
+                        logger.error(i18n.translate("client.stream_start_failed", action=msg.Action, resp=resp))
                     return
-                
+
                 if type(msg.Data) is dict:
                     loop = asyncio.get_event_loop()
                     resp = await loop.run_in_executor(None, drivers[msg.Action], msg.Data)
@@ -104,7 +109,7 @@ class Client(ws.Connector):
                     for operator in msg.Data:
                         resp = await loop.run_in_executor(None, drivers[msg.Action], operator)
                 else:
-                    await self.Error.error(translate("client.invalid_data_type"), To=msg.From, RequestID=msg.RequestID)
+                    await self.Error.error(i18n.translate("client.invalid_data_type"), To=msg.From, RequestID=msg.RequestID)
                     return
 
                 if isinstance(resp, dict) and resp.get("status") == "ok":
@@ -113,7 +118,7 @@ class Client(ws.Connector):
                         result = resp.get("result")
                         if isinstance(result, dict):
                             result["__binary__"] = True
-                        meta = message.Message(
+                        meta = self.Message(
                             Type="response",
                             Action=msg.Action,
                             To=msg.From,
@@ -123,36 +128,37 @@ class Client(ws.Connector):
                         )
                         await self.conn.send(meta.to_json())
                         await self.conn.send(data)
-                        logger.debug(translate("client.response_sent", size=len(data), to=msg.From))
+                        logger.debug(i18n.translate("client.response_sent", size=len(data), to=msg.From))
                         return
                     else:
-                        logger.error(translate("driver.no_data", result=resp.get("result")))
+                        logger.error(i18n.translate("driver.no_data", result=resp.get("result")))
 
                 elif isinstance(resp, dict) and resp.get("status") == "error":
-                    logger.error(translate("driver.error", message=resp.get("message")))
+                    logger.error(i18n.translate("driver.error", message=resp.get("message")))
                     await self.Error.error(resp.get("message", "Driver error"), To=msg.From, RequestID=msg.RequestID)
                 else:
-                    logger.error(translate("driver.unexpected_resp", resp=resp))
+                    logger.error(i18n.translate("driver.unexpected_resp", resp=resp))
 
             elif msg.Type == "error":
                 logger.error(msg.Data)
             else:
-                await self.Error.error(translate("client.invalid_message_type"), To=msg.From, RequestID=msg.RequestID)
+                await self.Error.error(i18n.translate("client.invalid_message_type"), To=msg.From, RequestID=msg.RequestID)
         except KeyError as e:
-            logger.error(translate("client.key_error", error=e))
-            await self.Error.error(translate("client.key_error", error=e), To=msg.From, RequestID=msg.RequestID)
+            logger.error(i18n.translate("client.key_error", error=e))
+            await self.Error.error(i18n.translate("client.key_error", error=e), To=msg.From, RequestID=msg.RequestID)
         except Exception as e:
-            logger.error(translate("client.main_exception", error=e), exc_info=True)
+            logger.error(i18n.translate("client.exception_in_main", type=type(e).__name__, error=e), exc_info=True)
             await self.Error.error(str(e), To=msg.From, RequestID=msg.RequestID)
 
     async def _forward_stream(self, frame_msg: dict, original_msg):
+        """将驱动回调的帧数据转发到服务端。"""
         try:
             if isinstance(frame_msg, dict) and frame_msg.get("BinaryData"):
                 data = frame_msg["BinaryData"]
                 result = frame_msg.get("Data", {})
                 if isinstance(result, dict):
                     result["__binary__"] = True
-                meta = message.Message(
+                meta = self.Message(
                     Type="stream",
                     Action=original_msg.Action,
                     To=original_msg.From,
@@ -161,10 +167,10 @@ class Client(ws.Connector):
                 await self.conn.send(meta.to_json())
                 await self.conn.send(data)
         except Exception as e:
-            logger.error(translate("client.stream_forward_error", error=e), exc_info=True)
+            logger.error(i18n.translate("client.stream_forward_error", error=e), exc_info=True)
 
     async def start_stream(self, to: str, params: dict):
-        await self.conn.send(message.Message(
+        await self.conn.send(self.Message(
             Type="command",
             Action="screen",
             To=to,
@@ -177,7 +183,7 @@ class Client(ws.Connector):
 
         drv_registry.stop_all_streams()
         self._active_streams.clear()
-        logger.info(translate("client.all_streams_stopped"))
+        logger.info(i18n.translate("client.all_streams_stopped"))
 
 
 def main():
@@ -190,17 +196,19 @@ def main():
         return
 
     async def start():
-        from . import config
+        from . import config as app_config
         from . import user
 
         import platform
         import pyautogui
 
-
         tokens = user.refresh_login() or user.login()
         user.save_tokens(tokens)
 
-        config = {
+        from .drivers import registry
+        registry.scan()
+
+        client_config = {
             "url": WS_URL,
             "headers": {
                 "Authorization": f"Bearer {tokens.access_token}",
@@ -212,21 +220,20 @@ def main():
                     "deviceInfo": "",
                     "platform": platform.platform(),
                     "machine": platform.machine(),
-                    "appVersion": config.VERSION,
+                    "appVersion": app_config.VERSION,
                     "screenResolution": f"{pyautogui.size().width}x{pyautogui.size().height}",
                 }
             }
         }
-        client = Client(**config)
+        Client(**client_config)
 
         while True:
             await asyncio.sleep(1)
-            # await client.System.ping()
 
     try:
         asyncio.run(start())
     except KeyboardInterrupt:
-        logger.info(translate("system.close"))
+        logger.info(i18n.translate("system.close"))
     finally:
         from .drivers import registry as drv_registry
         drv_registry.shutdown()

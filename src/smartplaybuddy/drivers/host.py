@@ -3,6 +3,7 @@
 由主程序以 --driver-host 参数启动，通过 stdin/stdout 二进制帧通信。
 
 帧格式: type(1B) + json_len(4B LE) + bin_len(4B LE) + json_bytes + bin_bytes
+type: 0=普通消息, 1=二进制数据
 """
 import os
 import sys

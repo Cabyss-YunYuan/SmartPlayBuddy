@@ -1,6 +1,12 @@
+"""
+驱动注册表。
+负责驱动扫描、子进程生命周期管理、流式回调注册。
+DriverProcess 封装单个驱动子进程的 IPC 通信；
+DriverRegistry 管理所有驱动进程的启动/停止/重扫描；
+DriversDict 提供字典式驱动调用接口。
+"""
 import json
 import queue
-import shutil
 import struct
 import subprocess
 import sys
@@ -52,7 +58,7 @@ class DriverProcess:
             self._process.kill()
             raise RuntimeError(translate("driver.failed_to_start", name=name))
         self._ready = True
-        logger.info(translate("driver.started", name=name))
+        logger.debug(translate("driver.started", name=name))
 
     def _read_exact(self, n: int) -> bytes | None:
         buf = b""
@@ -119,11 +125,11 @@ class DriverProcess:
 
     def register_stream_callback(self, stream_id: str, callback):
         self._stream_callbacks[stream_id] = callback
-        logger.info(translate("driver.stream_started", name=self.name, stream_id=stream_id))
+        logger.debug(translate("driver.stream_started", name=self.name, stream_id=stream_id))
 
     def unregister_stream_callback(self, stream_id: str):
         self._stream_callbacks.pop(stream_id, None)
-        logger.info(translate("driver.stream_stopped", name=self.name, stream_id=stream_id))
+        logger.debug(translate("driver.stream_stopped", name=self.name, stream_id=stream_id))
 
     def stop(self):
         try:
@@ -138,7 +144,7 @@ class DriverProcess:
                 self._process.kill()
             except Exception:
                 pass
-        logger.info(translate("driver.stopped", name=self.name))
+        logger.debug(translate("driver.stopped", name=self.name))
 
 
 class DriverRegistry:
@@ -177,45 +183,13 @@ class DriverRegistry:
             self._procs.pop(driver_name, None)
             return self._operate_with_recovery(driver_name, action, data, retried=True)
 
+    def scan(self):
+        if not self._scanned:
+            self._scanned = True
+            self._scan_drivers_dir()
+
     def _ensure_scanned(self):
-        if self._scanned:
-            return
-        for d in self._driver_dirs:
-            for sub in d.iterdir():
-                manifest_file = sub / "manifest.json"
-                if not sub.is_dir() or not manifest_file.exists():
-                    continue
-
-                with open(manifest_file, "r", encoding="utf-8") as f:
-                    manifest = json.load(f)
-
-                # 支持 "action" (字符串) 和 "actions" (数组) 两种格式
-                actions = manifest.get("actions") or ([manifest["action"]] if manifest.get("action") else [])
-                if not actions:
-                    continue
-
-                driver_file = sub / "driver.py"
-                if not driver_file.exists():
-                    continue
-
-                if manifest.get("embedded", False):
-                    continue
-
-                packages_dir = sub / "packages"
-                cmd = sys.executable + " " + str(HOST_SCRIPT) + f' "{driver_file}"'
-                if packages_dir.exists():
-                    cmd += f' "{packages_dir}"'
-
-                self._install_dependencies(str(sub), manifest)
-
-                for action in actions:
-                    self._info[action] = {
-                        "driver_file": driver_file,
-                        "packages_dir": packages_dir if packages_dir.exists() else None,
-                        "cmd": cmd,
-                        "manifest": manifest,
-                    }
-        self._scanned = True
+        self.scan()
 
     _REQUIRED_FIELDS = ("appid", "versionCode", "versionName")
 
@@ -244,6 +218,9 @@ class DriverRegistry:
                     "manifest": manifest,
                     "actions": actions,
                 }
+                if driver_name in self._info:
+                    existing_path = self._info[driver_name]["path"]
+                    raise RuntimeError(translate("driver.duplicate_name", name=driver_name, existing=existing_path, path=str(entry)))
                 self._info[driver_name] = info
                 for act in actions:
                     if act not in self._info:
@@ -265,9 +242,9 @@ class DriverRegistry:
         if name in self._procs:
             return self._procs[name]
 
-        cmd = info["cmd"]
-        driver_file = info["driver_file"]
-        packages_dir = info.get("packages_dir")
+        driver_file = str(Path(info["path"]) / manifest.get("entry", "driver.py"))
+        packages_dir = str(Path(info["path"]) / "packages")
+        cmd = self._build_cmd(driver_file, packages_dir if Path(packages_dir).exists() else None)
 
         proc = DriverProcess(cmd, name)
         self._procs[name] = proc
@@ -295,7 +272,7 @@ class DriverRegistry:
             "--target", str(packages_dir),
             "--quiet",
         ]
-        logger.info(translate("driver.installing_dependencies", name=manifest["name"]))
+        logger.debug(translate("driver.installing_dependencies", name=manifest["name"]))
         try:
             subprocess.check_call(cmd, timeout=120)
         except Exception as e:
@@ -366,6 +343,15 @@ class DriverRegistry:
             self._procs[name].stop()
             del self._procs[name]
         self._scanned = False
+
+    def rescan(self):
+        for proc in self._procs.values():
+            proc.stop()
+        self._procs.clear()
+        self._info.clear()
+        self._scanned = False
+        self.scan()
+        logger.debug(translate("driver.rescanned"))
 
     def shutdown(self):
         for proc in self._procs.values():

@@ -1,4 +1,4 @@
-from ..i18n import *
+from .. import i18n
 from .. import log
 from ..config import SERVER_HOST, LOCAL_PORT
 
@@ -26,7 +26,7 @@ class Tokens:
 def save_tokens(tokens: Tokens):
     credential = json.dumps(asdict(tokens))
     keyring.set_password(SERVICE_NAME, ACCOUNT_NAME, credential)
-    logger.debug(translate("user.login.tokens_saved"))
+    logger.debug(i18n.translate("user.login.tokens_saved"))
 
 
 def _load_tokens() -> Tokens | None:
@@ -37,7 +37,7 @@ def _load_tokens() -> Tokens | None:
         data = json.loads(credential)
         return Tokens(**data)
     except Exception as e:
-        logger.warning(translate("user.login.load_tokens_failed", error=str(e)))
+        logger.warning(i18n.translate("user.login.load_tokens_failed", error=str(e)))
         return None
 
 
@@ -59,10 +59,10 @@ def refresh_login() -> Tokens | None:
             refresh_token=data.get("refreshToken", tokens.refresh_token),
             expires_in=data.get("expiresIn", 0),
         )
-        logger.info(translate("user.login.auto_login_success", expires_in=new_tokens.expires_in))
+        logger.info(i18n.translate("user.login.auto_login_success", expires_in=new_tokens.expires_in))
         return new_tokens
     except Exception as e:
-        logger.warning(translate("user.login.auto_login_failed", error=str(e)))
+        logger.warning(i18n.translate("user.login.auto_login_failed", error=str(e)))
         return None
 
 
@@ -99,8 +99,8 @@ def login() -> Tokens:
     )
     iam_url = json.loads(resp.read())["url"]
 
-    logger.info(translate("user.login.opening_browser"))
-    logger.info(translate("user.login.manual_login_hint", url=iam_url))
+    logger.info(i18n.translate("user.login.opening_browser"))
+    logger.info(i18n.translate("user.login.manual_login_hint", url=iam_url))
     webbrowser.open(iam_url)
 
     server.handle_request()
@@ -109,5 +109,5 @@ def login() -> Tokens:
     if result is None:
         raise RuntimeError("Login failed")
 
-    logger.info(translate("user.login.login_success", expires_in=result.expires_in))
+    logger.info(i18n.translate("user.login.login_success", expires_in=result.expires_in))
     return result

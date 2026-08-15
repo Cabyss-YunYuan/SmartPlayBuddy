@@ -1,17 +1,19 @@
+"""
+Mod 开发入口模块。
+提供 Mod 基类供第三方开发者继承，实现自定义消息处理逻辑。
+"""
 from . import ws
-from .i18n import *
+from . import i18n
 from . import log
 from .config import WS_URL
 
 import asyncio
-import time
-import json
-import base64
-
 
 logger = log.logger.getChild("Mod")
 
 class Mod(ws.Connector):
+    """Mod 基类，开发者继承并实现 main() 方法处理消息。"""
+
     def __init__(self, **config):
         super().__init__(**config)
 
@@ -19,7 +21,8 @@ class Mod(ws.Connector):
         print(msg)
 
 
-def main(mod:type[Mod] = Mod):
+def main(mod: type[Mod] = Mod):
+    """Mod 启动入口。"""
     async def start():
         from . import config
         from . import user
@@ -54,4 +57,4 @@ def main(mod:type[Mod] = Mod):
     try:
         asyncio.run(start())
     except:
-        logger.info(translate("system.close"))
+        logger.info(i18n.translate("system.close"))

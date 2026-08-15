@@ -1,3 +1,8 @@
+"""
+消息协议定义。
+Message 数据类 + 雪花 ID 生成器。
+序列化时 Data 字段经 Base64 编码，二进制字段通过 Binary 标记。
+"""
 from ...i18n import translate
 from ... import log
 
@@ -13,6 +18,8 @@ logger = log.logger.getChild("ws").getChild("message")
 
 
 class SnowflakeGenerator:
+    """线程安全的雪花 ID 生成器，用于生成全局唯一 RequestID。"""
+
     def __init__(self, worker_id: int = 0, datacenter_id: int = 0):
         self.worker_id = worker_id & 0x1F
         self.datacenter_id = datacenter_id & 0x1F
@@ -49,6 +56,7 @@ _generator = SnowflakeGenerator()
 
 @dataclass
 class Message:
+    """WebSocket 消息协议数据类。"""
     Type: str
     Action: str
     From: str | None = None
@@ -61,6 +69,7 @@ class Message:
 
     @classmethod
     def from_json(cls, d: dict) -> "Message":
+        """从服务端 JSON 反序列化，Data 字段经 Base64 解码。"""
         data = d.get("data")
         if data is not None:
             raw = base64.b64decode(data)
@@ -82,6 +91,7 @@ class Message:
         )
 
     def _encode_data(self) -> str | None:
+        """将 Data 编码为 Base64 字符串，用于 JSON 序列化。"""
         if self.Data is None:
             return None
         if isinstance(self.Data, bytes):
@@ -91,11 +101,12 @@ class Message:
         elif isinstance(self.Data, (dict, list)):
             raw = json.dumps(self.Data).encode("utf-8")
         else:
-            logger.error(translate("error.unsupported_data_type", type=type(self.Data).__name__, value=self.Data))
+            logger.error(translate("message.unsupported_data_type", type=type(self.Data).__name__, value=self.Data))
             return None
         return base64.b64encode(raw).decode("ascii")
 
     def to_json(self) -> str:
+        """序列化为服务端 JSON 格式，自动生成 RequestID。"""
         d = {
             "type": self.Type,
             "action": self.Action,
@@ -114,5 +125,5 @@ class Message:
         if encoded is not None:
             d["data"] = encoded
 
-        logger.debug(f"{self}")
+        logger.debug(translate("message.serialized", msg=str(d)))
         return json.dumps(d)

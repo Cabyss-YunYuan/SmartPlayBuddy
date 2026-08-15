@@ -1,5 +1,82 @@
 {
   "app": {
     "name": "SmartPlayBuddy"
+  },
+  "message": {
+    "connecting": "Connecting...",
+    "connect_success": "Connected",
+    "connect_timeout": "Connection timed out",
+    "connect_server_failed": "Unable to connect to server",
+    "connect_closed": "Connection closed",
+    "serialized": "Message serialized: {msg}",
+    "unsupported_data_type": "Unsupported Data type: {type}, value: {value}"
+  },
+  "system": {
+    "ping": "Latency from {device}: {latency}",
+    "close": "Shutdown"
+  },
+  "connector": {
+    "binary_received": "Binary frame received: {size} bytes",
+    "msg_received": "Message received: {msg}",
+    "binary_paired": "Binary frame paired: type={type}, action={action}",
+    "msg_parsed": "Message parsed: type={type}, action={action}",
+    "pending_set": "Pending set: waiting for binary frame",
+    "loop_exited": "Message loop exited",
+    "task_create_failed": "Failed to create connection task: {error}",
+    "connect_closed_error": "Connection closed: code={code}, reason={reason}",
+    "binary_without_text": "Binary frame received without preceding text frame, discarded",
+    "msg_parse_failed": "Message parse failed: {msg}",
+    "msg_field_missing": "Message missing required field [{field}]: {msg}",
+    "loop_exception": "Message loop exception: {error}"
+  },
+  "i18n": {
+    "language_pack_not_found": "Language pack {package1} not found, falling back to {package2}",
+    "translation_not_found": "Translation not found: {key}",
+    "reloaded": "Language packs reloaded, added: {added}, removed: {removed}"
+  },
+  "user": {
+    "login": {
+      "auto_login_success": "Auto login successful, token expires in {expires_in} seconds",
+      "auto_login_failed": "Auto login failed: {error}, falling back to browser login",
+      "opening_browser": "Opening browser for login...",
+      "manual_login_hint": "If not redirected automatically, please open the following link: {url}",
+      "login_success": "Login successful, token expires in {expires_in} seconds",
+      "tokens_saved": "Tokens saved to system credential manager",
+      "load_tokens_failed": "Failed to load tokens: {error}"
+    }
+  },
+  "driver": {
+    "not_found": "Driver '{driver}' not found",
+    "no_data": "No data in response: {result}",
+    "error": "Driver error: {message}",
+    "unexpected_resp": "Unexpected response: {resp}",
+    "failed_to_start": "Driver '{name}' failed to start",
+    "started": "Driver started: {name}",
+    "stream_started": "Stream '{stream_id}' started: {name}",
+    "process_exited": "Driver '{name}' process exited unexpectedly",
+    "action_not_found": "No driver found for action '{action}'",
+    "operate_failed": "Driver '{name}' operation failed: {error}, stderr: {stderr}",
+    "died": "Driver '{name}' crashed, stderr:\n{stderr}",
+    "stopped": "Driver stopped: {name}",
+    "rescanned": "Drivers rescanned",
+    "stream_stopped": "Stream '{stream_id}' stopped: {name}",
+    "installing_dependencies": "Installing dependencies for '{name}'...",
+    "install_dependencies_failed": "Failed to install dependencies: {error}",
+    "no_python_runtime": "Python runtime not found, skipping dependency installation",
+    "discovered": "Driver discovered: {name} ({path})",
+    "duplicate_name": "Driver name '{name}' conflict: {existing} duplicates {path}",
+    "manifest_missing_fields": "Driver '{name}' manifest missing required fields: {fields}",
+    "manifest_read_failed": "Failed to read driver '{name}' manifest: {error}"
+  },
+  "client": {
+    "response_sent": "Response sent: {size} bytes → {to}",
+    "key_error": "KeyError: {error}",
+    "stream_forward_error": "Stream forward failed: {error}",
+    "stream_stopped": "Stream stopped: {action}, stream_id={stream_id}, sender={sender}",
+    "stream_start_failed": "Stream mode start failed: {action}, response: {resp}",
+    "all_streams_stopped": "Connection disconnected, all streams stopped",
+    "exception_in_main": "main handler exception: {type}: {error}",
+    "invalid_data_type": "Invalid data type",
+    "invalid_message_type": "Invalid message type"
   }
 }

@@ -18,3 +18,4 @@ class KeyboardDriver(BaseDriver):
             pyautogui.keyDown(params["key"])
         elif op == "release":
             pyautogui.keyUp(params["key"])
+        return {"status": "ok", "result": None}
