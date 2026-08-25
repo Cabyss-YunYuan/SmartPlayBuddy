@@ -7,7 +7,7 @@
       <sourceFolder url="file://$MODULE_DIR$/src/smartplaybuddy" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
     </content>
+    <orderEntry type="jdk" jdkName="Python 3.14 (buddy)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
-    <orderEntry type="jdk" jdkName="Python 3.13 (SmartPlayBuddy)" jdkType="Python SDK" />
   </component>
 </module>
