@@ -8,6 +8,7 @@ from . import i18n
 from . import log
 from .config import WS_URL
 from .drivers import drivers
+from .ws import route
 
 import asyncio
 from typing import Dict
@@ -23,10 +24,37 @@ class Client(ws.Connector):
         self._loop = asyncio.get_event_loop()
         # 活跃流记录: {action: {from: [stream_id, ...]}}
         self._active_streams: Dict[str, Dict[str, list[str]]] = {}
+        # 已授权控制方: {发送方路由标识: 授权时的 requestId}
+        self._authorized: Dict[str, str] = {}
 
     async def main(self, msg) -> None:
         try:
+            if msg.Type == "event":
+                if msg.Action == "request_control":
+                    await self._handle_control_request(msg)
+                return
+
             if msg.Type == "command":
+                # 设备间指令：同账号校验（uid 不同不执行）+ requestID 校验（与批准的请求一致才执行）
+                if msg.From:
+                    to = self.resolve_to(msg.To)
+                    if not to or not route.same_account(msg.From, to):
+                        logger.warning(i18n.translate("client.account_mismatch", sender=msg.From, to=to))
+                        await self.Error.error(i18n.translate("client.account_mismatch", sender=msg.From, to=to),
+                                               To=msg.From, RequestID=msg.RequestID)
+                        return
+                    grant_rid = self._authorized.get(msg.From)
+                    if grant_rid is None:
+                        logger.warning(i18n.translate("client.not_authorized", sender=msg.From))
+                        await self.Error.error(i18n.translate("client.not_authorized", sender=msg.From),
+                                               To=msg.From, RequestID=msg.RequestID)
+                        return
+                    if msg.RequestID != grant_rid:
+                        logger.warning(i18n.translate("client.rid_mismatch", sender=msg.From, rid=msg.RequestID))
+                        await self.Error.error(i18n.translate("client.rid_mismatch", sender=msg.From, rid=msg.RequestID),
+                                               To=msg.From, RequestID=msg.RequestID)
+                        return
+
                 if msg.Action == "*" and isinstance(msg.Data, dict) and msg.Data.get("operate") == "stop_stream":
                     from .drivers import registry as drv_registry
                     drv_registry.stop_all_streams()
@@ -129,9 +157,17 @@ class Client(ws.Connector):
                         await self.conn.send(meta.to_json())
                         await self.conn.send(data)
                         logger.debug(i18n.translate("client.response_sent", size=len(data), to=msg.From))
-                        return
                     else:
-                        logger.error(i18n.translate("driver.no_data", result=resp.get("result")))
+                        ack = self.Message(
+                            Type="response",
+                            Action=msg.Action,
+                            To=msg.From,
+                            RequestID=msg.RequestID,
+                            Data=resp.get("result"),
+                        )
+                        await self.conn.send(ack.to_json())
+                        logger.debug(i18n.translate("client.ack_sent", action=msg.Action, to=msg.From))
+                    return
 
                 elif isinstance(resp, dict) and resp.get("status") == "error":
                     logger.error(i18n.translate("driver.error", message=resp.get("message")))
@@ -169,6 +205,44 @@ class Client(ws.Connector):
         except Exception as e:
             logger.error(i18n.translate("client.stream_forward_error", error=e), exc_info=True)
 
+    async def _handle_control_request(self, msg):
+        """处理控制请求：同账号校验 → 询问用户 → 回传原 requestId 与同意状态。"""
+        to = self.resolve_to(msg.To)
+        if not msg.From or not to or not route.same_account(msg.From, to):
+            logger.warning(i18n.translate("client.account_mismatch", sender=msg.From, to=to))
+            await self.Error.error(i18n.translate("client.account_mismatch", sender=msg.From, to=to),
+                                   To=msg.From, RequestID=msg.RequestID)
+            return
+
+        loop = asyncio.get_event_loop()
+        answer = await loop.run_in_executor(
+            None, input, i18n.translate("client.control_request_prompt", sender=msg.From)
+        )
+        accepted = answer.strip().lower() in ("y", "yes")
+
+        if accepted:
+            self._authorized[msg.From] = msg.RequestID
+        else:
+            self._authorized.pop(msg.From, None)
+
+        resp = self.Message(
+            Type="response",
+            Action="request_control",
+            To=msg.From,
+            RequestID=msg.RequestID,
+            Data={
+                "accepted": accepted,
+                "requestId": msg.RequestID,
+                "from": msg.From,
+                "to": to,
+            },
+        )
+        await self.conn.send(resp.to_json())
+        logger.info(i18n.translate(
+            "client.control_accepted" if accepted else "client.control_rejected",
+            sender=msg.From, rid=msg.RequestID,
+        ))
+
     async def start_stream(self, to: str, params: dict):
         await self.conn.send(self.Message(
             Type="command",
@@ -183,6 +257,7 @@ class Client(ws.Connector):
 
         drv_registry.stop_all_streams()
         self._active_streams.clear()
+        self._authorized.clear()
         logger.info(i18n.translate("client.all_streams_stopped"))
 
 
@@ -213,6 +288,7 @@ def main():
             "headers": {
                 "Authorization": f"Bearer {tokens.access_token}",
             },
+            "userId": user.user_id(tokens),
             "status": {
                 "device": {
                     "type": "client",

@@ -27,7 +27,8 @@
     "binary_without_text": "Binary frame received without preceding text frame, discarded",
     "msg_parse_failed": "Message parse failed: {msg}",
     "msg_field_missing": "Message missing required field [{field}]: {msg}",
-    "loop_exception": "Message loop exception: {error}"
+    "loop_exception": "Message loop exception: {error}",
+    "self_route_unavailable": "Unable to build self route: userId={user_id}, deviceName={device}"
   },
   "i18n": {
     "language_pack_not_found": "Language pack {package1} not found, falling back to {package2}",
@@ -42,7 +43,9 @@
       "manual_login_hint": "If not redirected automatically, please open the following link: {url}",
       "login_success": "Login successful, token expires in {expires_in} seconds",
       "tokens_saved": "Tokens saved to system credential manager",
-      "load_tokens_failed": "Failed to load tokens: {error}"
+      "load_tokens_failed": "Failed to load tokens: {error}",
+      "parse_user_id_failed": "Failed to parse userId from token: {error}",
+      "user_id_claim_missing": "No userId claim found in token, claims: {claims}"
     }
   },
   "driver": {
@@ -70,6 +73,7 @@
   },
   "client": {
     "response_sent": "Response sent: {size} bytes → {to}",
+    "ack_sent": "Execution result sent: action={action} → {to}",
     "key_error": "KeyError: {error}",
     "stream_forward_error": "Stream forward failed: {error}",
     "stream_stopped": "Stream stopped: {action}, stream_id={stream_id}, sender={sender}",
@@ -77,6 +81,20 @@
     "all_streams_stopped": "Connection disconnected, all streams stopped",
     "exception_in_main": "main handler exception: {type}: {error}",
     "invalid_data_type": "Invalid data type",
-    "invalid_message_type": "Invalid message type"
+    "invalid_message_type": "Invalid message type",
+    "control_request_prompt": "{sender} is requesting control of this machine, accept? [y/N]: ",
+    "control_accepted": "Control request from {sender} accepted, requestId={rid}",
+    "control_rejected": "Control request from {sender} rejected, requestId={rid}",
+    "account_mismatch": "Same-account check failed: sender={sender}, to={to}",
+    "rid_mismatch": "Command requestId verification failed: sender={sender}, requestId={rid}",
+    "not_authorized": "{sender} is not authorized to control this machine, command rejected"
+  },
+  "mod": {
+    "control_request_sent": "Control request sent: to={to}, requestId={rid}",
+    "control_authorized": "{to} accepted control, requestId={rid}",
+    "control_denied": "{to} rejected control request, requestId={rid}",
+    "rid_mismatch": "Control response requestId mismatch: {rid}",
+    "account_mismatch": "Same-account check failed: sender={sender}, to={to}",
+    "not_authorized": "{to} has not accepted control, command not sent"
   }
 }

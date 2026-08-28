@@ -25,10 +25,21 @@ class Connector(ABC):
     def __init__(self, **config):
         self.url = config.get("url", "ws://smtplay.cabyss.cn:2508/ws")
         # self.user = config["user"]
+        device = config.get("status", {}).get("device", {})
+        uid = config.get("userId")
+        if uid and device.get("deviceName"):
+            self._self_route = f"{device.get('type', '')}:{uid}:{device['deviceName']}"
+        else:
+            self._self_route = None
+            logger.warning(i18n.translate("connector.self_route_unavailable", user_id=uid, device=device.get("deviceName")))
         try:
             self.connection = asyncio.create_task(self.connect(config))
         except Exception as e:
             logger.error(i18n.translate("connector.task_create_failed", error=e))
+
+    def resolve_to(self, to: str | None) -> str | None:
+        """服务端不透传 to 时，用本设备路由标识补位。"""
+        return to or self._self_route
 
     async def connect(self, config):
         logger.debug(i18n.translate("message.connecting"))
@@ -113,16 +124,21 @@ class Connector(ABC):
                         logger.debug(i18n.translate("connector.pending_set"))
                         continue
 
-                # 系统消息走内部逻辑，其余派发到子类
+                # 系统消息走内部逻辑，其余先经预处理再派发到子类
                 if msg.Type == "system":
                     logic.system(self, msg)
-                await self.main(msg)
+                if await self.preprocess(msg):
+                    await self.main(msg)
             except websockets.exceptions.ConnectionClosed:
                 break
             except Exception as e:
                 logger.error(i18n.translate("connector.loop_exception", error=e), exc_info=True)
                 break
         logger.debug(i18n.translate("connector.loop_exited"))
+
+    async def preprocess(self, msg: "Message") -> bool:
+        """消息预处理钩子：在派发到 main() 前调用，返回 False 则跳过 main()。"""
+        return True
 
     @abstractmethod
     async def main(self, msg: "Message") -> None:

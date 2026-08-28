@@ -2,6 +2,7 @@ from .. import i18n
 from .. import log
 from ..config import SERVER_HOST, LOCAL_PORT
 
+import base64
 import webbrowser
 import http.server
 import urllib.parse
@@ -39,6 +40,21 @@ def _load_tokens() -> Tokens | None:
     except Exception as e:
         logger.warning(i18n.translate("user.login.load_tokens_failed", error=str(e)))
         return None
+
+
+def user_id(tokens: Tokens) -> str | None:
+    """从 access_token 的 JWT payload 中提取 userId，用于构造本设备路由标识。"""
+    try:
+        payload = tokens.access_token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        for key in ("userId", "uid", "user_id", "id", "sub"):
+            if claims.get(key) is not None:
+                return str(claims[key])
+        logger.warning(i18n.translate("user.login.user_id_claim_missing", claims=str(list(claims.keys()))))
+    except Exception as e:
+        logger.warning(i18n.translate("user.login.parse_user_id_failed", error=str(e)))
+    return None
 
 
 def refresh_login() -> Tokens | None:

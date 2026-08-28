@@ -27,7 +27,8 @@
     "binary_without_text": "收到没有前置文本帧的二进制帧，已丢弃",
     "msg_parse_failed": "消息解析失败: {msg}",
     "msg_field_missing": "消息缺少必填字段 [{field}]: {msg}",
-    "loop_exception": "消息循环异常: {error}"
+    "loop_exception": "消息循环异常: {error}",
+    "self_route_unavailable": "无法构造本设备路由标识: userId={user_id}, deviceName={device}"
   },
   "i18n": {
     "language_pack_not_found": "未找到语言包 {package1}，默认语言包将使用 {package2}",
@@ -42,7 +43,9 @@
       "manual_login_hint": "如果无法自动跳转，请手动打开以下链接: {url}",
       "login_success": "登录成功，令牌有效期 {expires_in} 秒",
       "tokens_saved": "令牌已保存至系统凭据管理器",
-      "load_tokens_failed": "加载令牌失败: {error}"
+      "load_tokens_failed": "加载令牌失败: {error}",
+      "parse_user_id_failed": "解析令牌中的 userId 失败: {error}",
+      "user_id_claim_missing": "令牌中未找到 userId 字段，claims: {claims}"
     }
   },
   "driver": {
@@ -70,6 +73,7 @@
   },
   "client": {
     "response_sent": "响应已发送: {size} 字节 → {to}",
+    "ack_sent": "执行结果已回传: action={action} → {to}",
     "key_error": "KeyError: {error}",
     "stream_forward_error": "流转发失败: {error}",
     "stream_stopped": "流已停止: {action}, stream_id={stream_id}, sender={sender}",
@@ -77,6 +81,20 @@
     "all_streams_stopped": "连接已断开，所有流已停止",
     "exception_in_main": "main 处理异常: {type}: {error}",
     "invalid_data_type": "无效的数据类型",
-    "invalid_message_type": "无效的消息类型"
+    "invalid_message_type": "无效的消息类型",
+    "control_request_prompt": "{sender} 请求控制本机，是否同意？[y/N]: ",
+    "control_accepted": "已同意 {sender} 的控制请求，requestId={rid}",
+    "control_rejected": "已拒绝 {sender} 的控制请求，requestId={rid}",
+    "account_mismatch": "同账号校验失败: sender={sender}, to={to}",
+    "rid_mismatch": "command requestId 校验失败: sender={sender}, requestId={rid}",
+    "not_authorized": "{sender} 未获得本机控制授权，指令已拒绝"
+  },
+  "mod": {
+    "control_request_sent": "已发送控制请求: to={to}, requestId={rid}",
+    "control_authorized": "{to} 已同意控制，requestId={rid}",
+    "control_denied": "{to} 拒绝了控制请求，requestId={rid}",
+    "rid_mismatch": "控制响应 requestId 不匹配: {rid}",
+    "account_mismatch": "同账号校验失败: sender={sender}, to={to}",
+    "not_authorized": "{to} 未同意控制，指令未发送"
   }
 }
