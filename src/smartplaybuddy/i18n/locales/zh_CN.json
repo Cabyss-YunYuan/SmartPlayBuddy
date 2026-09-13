@@ -27,7 +27,17 @@
     "binary_without_text": "收到没有前置文本帧的二进制帧，已丢弃",
     "msg_parse_failed": "消息解析失败: {msg}",
     "msg_field_missing": "消息缺少必填字段 [{field}]: {msg}",
-    "loop_exception": "消息循环异常: {error}"
+    "loop_exception": "消息循环异常: {error}",
+    "handshake_rejected": "握手被拒绝：HTTP {code}，{error}",
+    "connect_failed": "连接失败: {error}",
+    "error_no_target": "错误消息缺少目标(to)，仅本地记录: {data}",
+    "reconnect_in": "第 {attempt} 次重连将在 {delay}s 后开始（上次关闭码: {code}）",
+    "reconnected": "重连成功（共尝试 {attempt} 次）",
+    "reconnect_gave_up": "已达最大重试次数 {attempts}，停止重连",
+    "stopped": "已停止重连",
+    "token_revoked": "访问令牌已被吊销，需重新登录",
+    "auth_failed": "获取访问令牌失败，停止重连: {error}",
+    "claim_rejected": "设备声明被拒绝: {reason}，将断开重连重试"
   },
   "i18n": {
     "language_pack_not_found": "未找到语言包 {package1}，默认语言包将使用 {package2}",
@@ -43,7 +53,8 @@
       "login_success": "登录成功，令牌有效期 {expires_in} 秒",
       "tokens_saved": "令牌已保存至系统凭据管理器",
       "load_tokens_failed": "加载令牌失败: {error}",
-      "no_free_port": "无法找到可用的空闲端口"
+      "no_free_port": "无法找到可用的空闲端口",
+      "tokens_cleared": "本地令牌已清除"
     }
   },
   "driver": {
@@ -79,6 +90,7 @@
     "all_streams_stopped": "连接已断开，所有流已停止",
     "exception_in_main": "main 处理异常: {type}: {error}",
     "invalid_data_type": "无效的数据类型",
-    "invalid_message_type": "无效的消息类型"
+    "invalid_message_type": "无效的消息类型",
+    "token_revoked": "访问令牌已被吊销，下次启动需重新登录"
   }
 }

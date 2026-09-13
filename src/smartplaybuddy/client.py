@@ -17,6 +17,8 @@ logger = log.logger.getChild("Client")
 class Client(ws.Connector):
     """业务客户端：接收服务端指令 → 调用本地驱动 → 回传结果。"""
 
+    auto_auth = True
+
     def __init__(self, **config):
         super().__init__(**config)
         self._stream_handler = None
@@ -27,7 +29,10 @@ class Client(ws.Connector):
     async def main(self, msg) -> None:
         try:
             if msg.Type == "command":
-                if msg.Action == "*" and isinstance(msg.Data, dict) and msg.Data.get("operate") == "stop_stream":
+                data = msg.Data if isinstance(msg.Data, dict) else {}
+                operate = data.get("operate")
+
+                if msg.Action == "*" and operate == "stop_stream":
                     from .drivers import registry as drv_registry
                     drv_registry.stop_all_streams()
                     self._active_streams.clear()
@@ -37,15 +42,15 @@ class Client(ws.Connector):
                 if msg.Action not in drivers:
                     resp = self.Message(Type="error", Action=msg.Action, To=msg.From, RequestID=msg.RequestID,
                                            Data=i18n.translate("driver.not_found", driver=msg.Action), )
-                    await self.conn.send(resp.to_json())
+                    await self.send(resp.to_json())
                     logger.warning(i18n.translate("client.key_error", error=resp))
                     return
                 
                 # 处理 stop_stream：移除回调并通知驱动
-                if msg.Data.get("operate") == "stop_stream":
+                if operate == "stop_stream":
                     from .drivers import registry as drv_registry
                     frm = msg.From
-                    stream_id = msg.Data.get("stream_id")
+                    stream_id = data.get("stream_id")
                     if frm:
                         streams = self._active_streams.get(msg.Action, {})
                         if stream_id:
@@ -68,7 +73,7 @@ class Client(ws.Connector):
                     return
 
                 # 处理 start_stream：发送响应后注册流回调
-                if msg.Data.get("operate") == "start_stream":
+                if operate == "start_stream":
                     stream_id = msg.RequestID
                     msg.Data["stream_id"] = stream_id
                     resp = drivers[msg.Action](msg.Data)
@@ -80,7 +85,7 @@ class Client(ws.Connector):
                             RequestID=msg.RequestID,
                             Data=resp.get("result"),
                         )
-                        await self.conn.send(meta.to_json())
+                        await self.send(meta.to_json())
 
                         from .drivers import registry as drv_registry
                         if msg.Action not in self._active_streams:
@@ -126,8 +131,7 @@ class Client(ws.Connector):
                             Data=result,
                             Binary=True,
                         )
-                        await self.conn.send(meta.to_json())
-                        await self.conn.send(data)
+                        await self.send_pair(meta, data)
                         logger.debug(i18n.translate("client.response_sent", size=len(data), to=msg.From))
                         return
                     else:
@@ -163,14 +167,14 @@ class Client(ws.Connector):
                     Action=original_msg.Action,
                     To=original_msg.From,
                     Data=result,
+                    Binary=True,
                 )
-                await self.conn.send(meta.to_json())
-                await self.conn.send(data)
+                await self.send_pair(meta, data)
         except Exception as e:
             logger.error(i18n.translate("client.stream_forward_error", error=e), exc_info=True)
 
     async def start_stream(self, to: str, params: dict):
-        await self.conn.send(self.Message(
+        await self.send(self.Message(
             Type="command",
             Action="screen",
             To=to,
@@ -202,21 +206,18 @@ def main():
         import platform
         import pyautogui
 
-        tokens = user.refresh_login() or user.login()
-        user.save_tokens(tokens)
+        # 启动即完成登录，失败直接退出，不必先等驱动扫描与依赖安装
+        await asyncio.to_thread(user.ensure_tokens)
 
         from .drivers import registry
         registry.scan()
 
         client_config = {
             "url": WS_URL,
-            "headers": {
-                "Authorization": f"Bearer {tokens.access_token}",
-            },
             "status": {
                 "device": {
                     "type": "client",
-                    "deviceName": "",
+                    "deviceName": app_config.DEVICE_NAME,
                     "deviceInfo": "",
                     "platform": platform.platform(),
                     "machine": platform.machine(),
@@ -225,10 +226,13 @@ def main():
                 }
             }
         }
-        Client(**client_config)
+        client = Client(**client_config)
 
-        while True:
-            await asyncio.sleep(1)
+        try:
+            # 监督循环退出即代表已停止重连(主动 close / 令牌不可用 / 达到重试上限)
+            await client.connection
+        finally:
+            await client.close()
 
     try:
         asyncio.run(start())

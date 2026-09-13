@@ -27,7 +27,17 @@
     "binary_without_text": "Binary frame received without preceding text frame, discarded",
     "msg_parse_failed": "Message parse failed: {msg}",
     "msg_field_missing": "Message missing required field [{field}]: {msg}",
-    "loop_exception": "Message loop exception: {error}"
+    "loop_exception": "Message loop exception: {error}",
+    "handshake_rejected": "Handshake rejected: HTTP {code}, {error}",
+    "connect_failed": "Connection failed: {error}",
+    "error_no_target": "Error message has no target (to), logged locally: {data}",
+    "reconnect_in": "Reconnecting in {delay}s (attempt {attempt}, last close code: {code})",
+    "reconnected": "Reconnected after {attempt} attempt(s)",
+    "reconnect_gave_up": "Max reconnect attempts ({attempts}) reached, giving up",
+    "stopped": "Reconnection stopped",
+    "token_revoked": "Access token revoked, re-login required",
+    "auth_failed": "Failed to obtain access token, reconnection stopped: {error}",
+    "claim_rejected": "Device claim rejected: {reason}, reconnecting to retry"
   },
   "i18n": {
     "language_pack_not_found": "Language pack {package1} not found, falling back to {package2}",
@@ -42,7 +52,9 @@
       "manual_login_hint": "If not redirected automatically, please open the following link: {url}",
       "login_success": "Login successful, token expires in {expires_in} seconds",
       "tokens_saved": "Tokens saved to system credential manager",
-      "load_tokens_failed": "Failed to load tokens: {error}"
+      "load_tokens_failed": "Failed to load tokens: {error}",
+      "no_free_port": "No free port available",
+      "tokens_cleared": "Local tokens cleared"
     }
   },
   "driver": {
@@ -78,6 +90,7 @@
     "all_streams_stopped": "Connection disconnected, all streams stopped",
     "exception_in_main": "main handler exception: {type}: {error}",
     "invalid_data_type": "Invalid data type",
-    "invalid_message_type": "Invalid message type"
+    "invalid_message_type": "Invalid message type",
+    "token_revoked": "Access token revoked, please log in again on next start"
   }
 }

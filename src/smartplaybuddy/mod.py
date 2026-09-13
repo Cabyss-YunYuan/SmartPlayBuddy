@@ -14,6 +14,8 @@ logger = log.logger.getChild("Mod")
 class Mod(ws.Connector):
     """Mod 基类，开发者继承并实现 main() 方法处理消息。"""
 
+    auto_auth = True
+
     def __init__(self, **config):
         super().__init__(**config)
 
@@ -24,37 +26,34 @@ class Mod(ws.Connector):
 def main(mod: type[Mod] = Mod):
     """Mod 启动入口。"""
     async def start():
-        from . import config
+        from . import config as app_config
         from . import user
 
         import platform
 
+        await asyncio.to_thread(user.ensure_tokens)
 
-        tokens = user.refresh_login() or user.login()
-        user.save_tokens(tokens)
-
-        config = {
+        mod_config = {
             "url": WS_URL,
-            "headers": {
-                "Authorization": f"Bearer {tokens.access_token}",
-            },
             "status": {
                 "device": {
                     "type": "mod",
-                    "deviceName": "",
+                    "deviceName": app_config.DEVICE_NAME,
                     "deviceInfo": "",
                     "platform": platform.platform(),
                     "machine": platform.machine(),
-                    "appVersion": config.VERSION,
+                    "appVersion": app_config.VERSION,
                 }
             }
         }
-        client = mod(**config)
+        client = mod(**mod_config)
 
-        while True:
-            await asyncio.sleep(1)
+        try:
+            await client.connection
+        finally:
+            await client.close()
 
     try:
         asyncio.run(start())
-    except:
+    except KeyboardInterrupt:
         logger.info(i18n.translate("system.close"))
