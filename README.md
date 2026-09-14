@@ -92,9 +92,9 @@ After the client starts, it will:
 
 ## Documentation
 
-- [Data Format](docs/data-format.md) — WebSocket message protocol
-- [Driver System](docs/driver.md) — Driver development guide
-- [Mod Development](docs/mods/mod-development.md) — Mod extension development guide
+- [DataFormat](docs/DataFormat.md) — WebSocket message protocol
+- [DriverSystem](docs/Driver.md) — Driver development guide
+- [ModDevelopment](docs/mods/ModDevelopment.md) — Mod extension development guide
 
 ## Tech Stack
 

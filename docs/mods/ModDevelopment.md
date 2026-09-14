@@ -184,4 +184,7 @@ if __name__ == "__main__":
 - The same account can run multiple Mod instances simultaneously
 - The `main()` method is asynchronous and supports `await` operations
 - The `Data` field in messages is auto-decoded (Base64 → Dict | Str | None) and ready to use
-- For sending binary data, refer to the dual-frame protocol in [Data Format](../data-format.md)
+- For sending binary data, refer to the dual-frame protocol in [Data Format](../DataFormat.md)
+
+## Console Access
+See [ModConsoleAccess](ModConsoleAccess.md) for details.

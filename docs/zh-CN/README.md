@@ -88,9 +88,9 @@ smtplay
 
 ## 文档
 
-- [数据格式](data-format.md) — WebSocket 消息协议
-- [驱动系统](driver.md) — 驱动开发指南
-- [Mod 开发](mods/mod-development.md) — Mod 扩展开发指南
+- [数据格式](DataFormat.md) — WebSocket 消息协议
+- [驱动系统](Driver.md) — 驱动开发指南
+- [Mod 开发](mods/ModDevelopment.md) — Mod 扩展开发指南
 
 ## 技术栈
 

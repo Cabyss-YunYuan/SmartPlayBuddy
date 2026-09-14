@@ -184,4 +184,7 @@ if __name__ == "__main__":
 - 同一账号可以同时运行多个 Mod 实例
 - `main()` 方法是异步的，支持 `await` 操作
 - 消息中的 `Data` 字段已经过自动解码（Base64 → Dict | Str | None），可直接使用
-- 如需发送二进制数据，参考 [数据格式](../data-format.md) 中的双帧协议
+- 如需发送二进制数据，参考 [数据格式](../DataFormat.md) 中的双帧协议
+
+## 控制台接入
+详见[Mod 控制台接入](ModConsoleAccess.md)。
