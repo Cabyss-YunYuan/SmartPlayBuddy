@@ -4,7 +4,7 @@ Message 数据类 + 雪花 ID 生成器。
 序列化时 Data 字段经 Base64 编码，二进制字段通过 Binary 标记。
 """
 from ...i18n import translate
-from ... import log
+from ... import logger
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -14,7 +14,7 @@ import time
 import threading
 
 
-logger = log.logger.getChild("ws").getChild("message")
+logger = logger.logger.getChild("ws").getChild("message")
 
 
 class SnowflakeGenerator:

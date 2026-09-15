@@ -1,13 +1,15 @@
 from .. import i18n
-from .. import log
-from ..config import SERVER_HOST
+from .. import logger
+from ..config import Config
 
 import socket
 import base64
 import hashlib
 import secrets
 import webbrowser
-import http.server
+import asyncio
+import multiprocessing
+import sys
 import urllib.parse
 import urllib.request
 import json
@@ -15,8 +17,7 @@ import keyring
 import time
 from dataclasses import dataclass, asdict
 
-
-logger = log.logger.getChild("User").getChild("Login")
+logger = logger.logger.getChild("User").getChild("Login")
 
 SERVICE_NAME = "SmartPlayBuddy"
 ACCOUNT_NAME = "UserTokens"
@@ -24,7 +25,7 @@ ACCOUNT_NAME = "UserTokens"
 #: access token 剩余有效期低于该值(秒)就提前刷新，避免握手中途过期
 TOKEN_REFRESH_MARGIN = 60
 #: 等待浏览器回调的上限(秒)，防止重连线程被无限期挂住
-LOGIN_CALLBACK_TIMEOUT = 300
+LOGIN_CALLBACK_TIMEOUT = 120
 
 #: 服务端 HttpOnly cookie 名，必须与 common/authtoken.go 的 CookieName / RefreshCookieName 保持一致
 ACCESS_COOKIE_NAME = "access_token"
@@ -65,6 +66,16 @@ def access_token_ttl(access_token: str) -> float | None:
     return float(exp) - time.time()
 
 
+def decode_jwt_payload(access_token: str) -> dict:
+    """解析 JWT 的 payload 部分，返回完整 claims dict；解析失败返回空 dict。"""
+    try:
+        payload = access_token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        return json.loads(base64.urlsafe_b64decode(payload))
+    except Exception:
+        return {}
+
+
 def _extract_set_cookies(resp) -> dict[str, str]:
     """从响应的 Set-Cookie 头解析出 {cookie名: 值}。
 
@@ -100,7 +111,7 @@ def _exchange_handoff_code(code: str, verifier: str) -> Tokens:
     不匹配或 code 已被消费(GetDel)都会返回 401。
     """
     req = urllib.request.Request(
-        f"{SERVER_HOST}/api/user/auth/token",
+        f"{Config.server_host}/api/user/auth/token",
         data=json.dumps({"code": code, "verifier": verifier}).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -110,7 +121,8 @@ def _exchange_handoff_code(code: str, verifier: str) -> Tokens:
     cookies = _extract_set_cookies(resp)
     access_token = cookies.get(ACCESS_COOKIE_NAME)
     if not access_token:
-        raise RuntimeError("token exchange returned no access_token cookie")
+        raise RuntimeError(i18n.translate("user.login.token_exchange_failed"))
+
     return Tokens(
         access_token=access_token,
         refresh_token=cookies.get(REFRESH_COOKIE_NAME, ""),
@@ -123,10 +135,8 @@ def refresh_login(tokens: Tokens | None = None) -> Tokens | None:
     if tokens is None or not tokens.refresh_token:
         return None
     try:
-        # refresh token 只经 HttpOnly cookie 传递，请求体不再携带；
-        # 新令牌同样只从 Set-Cookie 取，body 仅返回 expiresIn。
         req = urllib.request.Request(
-            f"{SERVER_HOST}/api/user/auth/refresh",
+            f"{Config.server_host}/api/user/auth/refresh",
             data=b"",
             headers={"Cookie": f"{REFRESH_COOKIE_NAME}={tokens.refresh_token}"},
             method="POST",
@@ -147,22 +157,143 @@ def refresh_login(tokens: Tokens | None = None) -> Tokens | None:
         logger.warning(i18n.translate("user.login.auto_login_failed", error=str(e)))
         return None
 
+_login_proc: multiprocessing.Process | None = None
 
-def _browser_login() -> Tokens:
-    tokens = login()
-    save_tokens(tokens)
-    return tokens
+async def _do_login() -> Tokens:
+    """交互式登录：无 UI 时走系统浏览器子进程。有 UI 时由 Web 应用处理，不自动弹窗。"""
+    if Config._ui:
+        raise RuntimeError("UI mode: login is handled by the web app, not auto-triggered")
+
+    return await _do_login_subprocess()
 
 
-def ensure_tokens(tokens: Tokens | None = None, force_login: bool = False) -> Tokens:
-    """返回可用的令牌：仍然有效则复用，过期则刷新，刷新失败或 force_login 则浏览器登录。
+async def _do_login_subprocess() -> Tokens:
+    """系统浏览器登录：在子进程中运行，不阻塞主进程事件循环。"""
+    global _login_proc
+    parent_conn, child_conn = multiprocessing.Pipe()
+    proc = multiprocessing.Process(
+        target=_login_subprocess,
+        args=(Config.server_host, child_conn),
+        daemon=True,
+    )
+    _login_proc = proc
+    proc.start()
+    child_conn.close()
 
-    force_login 用于 access token 被服务端吊销(WebSocket 关闭码 4001)的场景：
-    此时 refresh token 通常已一并吊销，再刷新只会白吃一次 400。
-    """
+    try:
+        while proc.is_alive():
+            await asyncio.sleep(0.2)
+
+        if parent_conn.poll():
+            result = parent_conn.recv()
+        else:
+            raise RuntimeError(i18n.translate("user.login.process_crashed"))
+    except asyncio.CancelledError:
+        raise
+    except EOFError:
+        raise RuntimeError(i18n.translate("user.login.process_crashed"))
+    finally:
+        parent_conn.close()
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=3)
+        _login_proc = None
+
+    if isinstance(result, dict) and result.get("ok"):
+        tokens = result["tokens"]
+        save_tokens(tokens)
+        return tokens
+    error_msg = result.get("error", i18n.translate("user.login.unknown_error")) if isinstance(result, dict) else str(result)
+    raise RuntimeError(error_msg)
+
+
+def _login_subprocess(server_host, pipe):
+    """子进程入口：系统浏览器登录，通过 pipe 返回 Tokens。"""
+    try:
+        tokens = login_in_subprocess(server_host)
+        pipe.send({"ok": True, "tokens": tokens})
+    except Exception as e:
+        pipe.send({"ok": False, "error": str(e)})
+
+
+def login_in_subprocess(server_host: str) -> Tokens:
+    """系统浏览器登录，在子进程中同步执行。"""
+    handoff_code_holder = [None]
+    loop = None
+
+    async def handle_callback(reader, writer):
+        try:
+            request_line = await reader.readline()
+            path = request_line.decode("utf-8", errors="ignore").split(" ")[1] if request_line else "/"
+            params = urllib.parse.parse_qs(urllib.parse.urlparse(path).query)
+            code = params.get("code", [None])[0]
+
+            if code and handoff_code_holder[0] is None:
+                handoff_code_holder[0] = code
+                body = f"<h1>{i18n.translate('user.login.browser_success')}</h1>".encode()
+            else:
+                body = f"<h1>{i18n.translate('user.login.browser_failed')}</h1>".encode()
+
+            writer.write(f"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode())
+            writer.write(body)
+            await writer.drain()
+        except Exception:
+            pass
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def _run():
+        nonlocal loop
+        loop = asyncio.get_running_loop()
+        port = _find_free_port()
+        if not _is_port_available(port):
+            raise RuntimeError(i18n.translate("user.login.no_free_port"))
+
+        server = await asyncio.start_server(handle_callback, "127.0.0.1", port)
+        frontend_url = urllib.parse.quote(f"http://localhost:{port}", safe="")
+        verifier, challenge = _generate_handoff_pair()
+        resp = urllib.request.urlopen(
+            f"{server_host}/api/user/auth/authorize?redirectUrl={frontend_url}&handoffChallenge={challenge}"
+        )
+        iam_url = json.loads(resp.read())["url"]
+        logger.info(i18n.translate("user.login.login_url", url=iam_url))
+        webbrowser.open(iam_url)
+
+        def _wait_for_code():
+            while handoff_code_holder[0] is None:
+                time.sleep(0.5)
+            return handoff_code_holder[0]
+
+        try:
+            handoff_code = await asyncio.wait_for(
+                loop.run_in_executor(None, _wait_for_code),
+                timeout=LOGIN_CALLBACK_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            server.close()
+            raise RuntimeError(i18n.translate("user.login.login_timeout"))
+        finally:
+            server.close()
+        return _exchange_handoff_code(handoff_code, verifier)
+
+    return asyncio.run(_run())
+
+
+async def _browser_login() -> Tokens:
+    return await _do_login()
+
+
+async def ensure_tokens(tokens: Tokens | None = None, force_login: bool = False) -> Tokens:
+    """返回可用的令牌：仍然有效则复用，过期则刷新，刷新失败或 force_login 则登录。"""
     if force_login:
         clear_tokens()
-        return _browser_login()
+        tokens = await _browser_login()
+        Config.user = decode_jwt_payload(tokens.access_token)
+        return tokens
 
     if tokens is None:
         tokens = _load_tokens()
@@ -170,14 +301,18 @@ def ensure_tokens(tokens: Tokens | None = None, force_login: bool = False) -> To
     if tokens is not None and tokens.access_token:
         ttl = access_token_ttl(tokens.access_token)
         if ttl is None or ttl > TOKEN_REFRESH_MARGIN:
+            Config.user = decode_jwt_payload(tokens.access_token)
             return tokens
 
     refreshed = refresh_login(tokens)
     if refreshed is not None:
+        Config.user = decode_jwt_payload(refreshed.access_token)
         return refreshed
 
     clear_tokens()
-    return _browser_login()
+    tokens = await _browser_login()
+    Config.user = decode_jwt_payload(tokens.access_token)
+    return tokens
 
 
 def _load_tokens() -> Tokens | None:
@@ -208,58 +343,3 @@ def _is_port_available(port: int) -> bool:
         return True
     except OSError:
         return False
-
-
-def login() -> Tokens:
-    handoff_code: str | None = None
-
-    class CallbackHandler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            nonlocal handoff_code
-            # 服务端回调只挂一次性 handoff code，真 token 不再出现在 URL 上
-            params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            handoff_code = params.get("code", [None])[0]
-
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            if handoff_code:
-                self.wfile.write(b"<h1>Login successful! You can close this tab.</h1>")
-            else:
-                self.wfile.write(b"<h1>Login failed: missing code.</h1>")
-
-        def log_message(self, format, *args):
-            pass
-
-    port = _find_free_port()
-    if not _is_port_available(port):
-        raise RuntimeError(i18n.translate("user.login.no_free_port"))
-
-    server = http.server.HTTPServer(("127.0.0.1", port), CallbackHandler)
-    # 轮询式等待：浏览器可能先请求 /favicon.ico 等噪音，需忽略后继续等真正的回调
-    server.timeout = 5
-
-    frontend_url = urllib.parse.quote(f"http://localhost:{port}", safe="")
-    verifier, challenge = _generate_handoff_pair()
-    resp = urllib.request.urlopen(
-        f"{SERVER_HOST}/api/user/auth/authorize?redirectUrl={frontend_url}&handoffChallenge={challenge}"
-    )
-    iam_url = json.loads(resp.read())["url"]
-
-    logger.info(i18n.translate("user.login.opening_browser"))
-    logger.info(i18n.translate("user.login.manual_login_hint", url=iam_url))
-    webbrowser.open(iam_url)
-
-    deadline = time.monotonic() + LOGIN_CALLBACK_TIMEOUT
-    while handoff_code is None and time.monotonic() < deadline:
-        server.handle_request()
-    server.server_close()
-
-    if not handoff_code:
-        raise RuntimeError("Login failed")
-
-    # 拿一次性 code 走反向通道换取令牌(服务端经 Set-Cookie 下发)
-    result = _exchange_handoff_code(handoff_code, verifier)
-
-    logger.info(i18n.translate("user.login.login_success", expires_in=result.expires_in))
-    return result

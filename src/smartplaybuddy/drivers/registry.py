@@ -16,9 +16,9 @@ from typing import Dict, Optional, Callable
 
 try:
     from ..i18n import translate
-    from .. import log
+    from .. import logger
 
-    logger = log.logger.getChild("Registry")
+    logger = logger.logger.getChild("Registry")
 
     HOST_SCRIPT = Path(__file__).parent / "host.py"
 
@@ -269,12 +269,13 @@ class DriverRegistry:
 
         if not req_path.exists():
             return
-        if packages_dir.exists() and any(packages_dir.iterdir()):
-            return
 
         python_exe = self._resolve_runtime_python()
         if not python_exe:
             logger.warning(translate("driver.no_python_runtime"))
+            return
+
+        if packages_dir.exists() and self._all_packages_installed(packages_dir, req_path):
             return
 
         packages_dir.mkdir(exist_ok=True)
@@ -290,11 +291,33 @@ class DriverRegistry:
         except Exception as e:
             logger.error(translate("driver.install_dependencies_failed", error=e))
 
+    def _all_packages_installed(self, packages_dir: Path, req_path: Path) -> bool:
+        if not any(packages_dir.iterdir()):
+            return False
+        try:
+            with open(req_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    pkg_name = line.split("[")[0].split(">=")[0].split("==")[0].split("<")[0].split(">")[0].strip()
+                    if not pkg_name:
+                        continue
+                    pkg_dir = packages_dir / pkg_name.replace("-", "_")
+                    dist_info_pattern = f"{pkg_name.replace('-', '_')}-*.dist-info"
+                    dist_info_pattern2 = f"{pkg_name.replace('-', '_').lower()}-*.dist-info"
+                    if not pkg_dir.exists() and not list(packages_dir.glob(dist_info_pattern)) and not list(packages_dir.glob(dist_info_pattern2)):
+                        logger.debug(f"Package '{pkg_name}' not found in {packages_dir}")
+                        return False
+            return True
+        except Exception:
+            return False
+
     def _build_cmd(self, driver_file: str, packages_dir: Optional[str]) -> list:
         if getattr(sys, 'frozen', False):
             cmd = [sys.executable, "--driver-host", driver_file]
         else:
-            cmd = [sys.executable, "-m", "smartplaybuddy.client", "--driver-host", driver_file]
+            cmd = [sys.executable, "-m", "smartplaybuddy.drivers.host", driver_file]
         if packages_dir:
             cmd.append(packages_dir)
         return cmd

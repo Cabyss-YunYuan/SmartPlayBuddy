@@ -48,7 +48,7 @@ SmartPlayBuddy/
 ├── src/smartplaybuddy/
 │   ├── client.py          ← Main client module (device side)
 │   ├── mod.py             ← Mod entry point
-│   ├── config/            ← Global config (server URL, version)
+│   ├── config.py          ← Global config (server URL, version)
 │   ├── drivers/           ← Driver framework + plugin directory
 │   │   ├── base.py        ← BaseDriver base class
 │   │   ├── host.py        ← Subprocess driver runner
@@ -59,7 +59,7 @@ SmartPlayBuddy/
 │   ├── i18n/              ← Internationalization module
 │   │   ├── translator.py  ← Translator
 │   │   └── locales/       ← Language packs
-│   ├── log/               ← Logging module
+│   ├── logger.py          ← Logging module
 │   ├── user/              ← User authentication (JWT login)
 │   └── ws/                ← WebSocket connector
 │       ├── connector.py   ← Connection base class (text+binary dual-frame protocol)

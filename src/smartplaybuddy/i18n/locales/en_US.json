@@ -47,14 +47,27 @@
   "user": {
     "login": {
       "auto_login_success": "Auto login successful, token expires in {expires_in} seconds",
-      "auto_login_failed": "Auto login failed: {error}, falling back to browser login",
-      "opening_browser": "Opening browser for login...",
+      "auto_login_failed": "Auto login failed: {error}, re-login required",
+      "opening_login": "Opening login window...",
       "manual_login_hint": "If not redirected automatically, please open the following link: {url}",
       "login_success": "Login successful, token expires in {expires_in} seconds",
       "tokens_saved": "Tokens saved to system credential manager",
       "load_tokens_failed": "Failed to load tokens: {error}",
       "no_free_port": "No free port available",
-      "tokens_cleared": "Local tokens cleared"
+      "tokens_cleared": "Local tokens cleared",
+      "waiting": "Please complete login in the login window...",
+      "timeout": "Login timed out, please retry",
+      "failed": "Login failed, please close the window and retry",
+      "start_failed": "Failed to start login: {error}",
+      "dialog_timeout": "Login dialog timed out",
+      "cancelled_or_failed": "Login cancelled or failed",
+      "login_timeout": "Login timed out, please try again",
+      "process_crashed": "Login process crashed, please try again",
+      "login_url": "If the login window doesn't open automatically, please visit: {url}",
+      "token_exchange_failed": "Token exchange failed: no access_token received",
+      "browser_success": "Login successful! You can close this page.",
+      "browser_failed": "Login failed: missing authorization code.",
+      "unknown_error": "Unknown login error"
     }
   },
   "driver": {
@@ -92,5 +105,15 @@
     "invalid_data_type": "Invalid data type",
     "invalid_message_type": "Invalid message type",
     "token_revoked": "Access token revoked, please log in again on next start"
+  },
+  "ui": {
+    "login": {
+      "title": "Login",
+      "button": "Login"
+    },
+    "status": {
+      "not_connected": "Not connected",
+      "connected": "Connected: {user}"
+    }
   }
 }

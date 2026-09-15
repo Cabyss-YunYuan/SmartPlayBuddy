@@ -44,7 +44,7 @@ SmartPlayBuddy/
 ├── src/smartplaybuddy/
 │   ├── client.py          ← 客户端主模块（设备端）
 │   ├── mod.py             ← Mod 开发入口
-│   ├── config/            ← 全局配置（服务地址、版本号）
+│   ├── config.py          ← 全局配置（服务地址、版本号）
 │   ├── drivers/           ← 驱动框架 + 插件目录
 │   │   ├── base.py        ← BaseDriver 基类
 │   │   ├── host.py        ← 子进程驱动运行器
@@ -55,7 +55,7 @@ SmartPlayBuddy/
 │   ├── i18n/              ← 国际化模块
 │   │   ├── translator.py  ← 翻译器
 │   │   └── locales/       ← 语言包
-│   ├── log/               ← 日志模块
+│   ├── logger.py          ← 日志模块
 │   ├── user/              ← 用户认证（JWT 登录）
 │   └── ws/                ← WebSocket 连接器
 │       ├── connector.py   ← 连接基类（text+binary 双帧协议）

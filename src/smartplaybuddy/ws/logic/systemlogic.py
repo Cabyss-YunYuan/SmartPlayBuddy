@@ -1,8 +1,8 @@
 import time
 from ... import i18n
-from ... import log
+from ... import logger
 
-logger = log.logger.getChild("System")
+logger = logger.logger.getChild("System")
 
 def system(self, msg):
     if msg.Action == "pong":

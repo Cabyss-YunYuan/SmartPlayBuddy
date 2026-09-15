@@ -47,14 +47,27 @@
   "user": {
     "login": {
       "auto_login_success": "自动登录成功，令牌有效期 {expires_in} 秒",
-      "auto_login_failed": "自动登录失败: {error}，将回退到浏览器登录",
-      "opening_browser": "正在打开浏览器进行登录...",
+      "auto_login_failed": "自动登录失败: {error}，需重新登录",
+      "opening_login": "正在打开登录窗口...",
       "manual_login_hint": "如果无法自动跳转，请手动打开以下链接: {url}",
       "login_success": "登录成功，令牌有效期 {expires_in} 秒",
       "tokens_saved": "令牌已保存至系统凭据管理器",
       "load_tokens_failed": "加载令牌失败: {error}",
       "no_free_port": "无法找到可用的空闲端口",
-      "tokens_cleared": "本地令牌已清除"
+      "tokens_cleared": "本地令牌已清除",
+      "waiting": "请在登录窗口中完成登录...",
+      "timeout": "登录超时，请重试",
+      "failed": "登录失败，请关闭窗口后重试",
+      "start_failed": "启动登录失败: {error}",
+      "dialog_timeout": "登录对话框超时",
+      "cancelled_or_failed": "登录已取消或失败",
+      "login_timeout": "登录超时，请重试",
+      "process_crashed": "登录进程异常退出，请重试",
+      "login_url": "如登录窗口未自动打开，请手动访问：{url}",
+      "token_exchange_failed": "令牌兑换失败，未收到 access_token",
+      "browser_success": "登录成功！可以关闭此页面。",
+      "browser_failed": "登录失败：缺少授权码。",
+      "unknown_error": "未知登录错误"
     }
   },
   "driver": {
@@ -92,5 +105,15 @@
     "invalid_data_type": "无效的数据类型",
     "invalid_message_type": "无效的消息类型",
     "token_revoked": "访问令牌已被吊销，下次启动需重新登录"
+  },
+  "ui": {
+    "login": {
+      "title": "登录",
+      "button": "登录"
+    },
+    "status": {
+      "not_connected": "未连接",
+      "connected": "已连接: {user}"
+    }
   }
 }

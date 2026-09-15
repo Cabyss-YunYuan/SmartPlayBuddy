@@ -5,14 +5,14 @@
 """
 from . import ws
 from . import i18n
-from . import log
-from .config import WS_URL
+from . import logger
+from .config import Config
 from .drivers import drivers
-
 import asyncio
 from typing import Dict
 
-logger = log.logger.getChild("Client")
+
+logger = logger.logger.getChild("Client")
 
 class Client(ws.Connector):
     """业务客户端：接收服务端指令 → 调用本地驱动 → 回传结果。"""
@@ -187,11 +187,31 @@ class Client(ws.Connector):
 
         drv_registry.stop_all_streams()
         self._active_streams.clear()
-        logger.info(i18n.translate("client.all_streams_stopped"))
+        logger.debug(i18n.translate("client.all_streams_stopped"))
+
+
+def _build_client_config():
+    import platform
+    import pyautogui
+    return {
+        "url": Config.ws_url,
+        "status": {
+            "device": {
+                "type": "client",
+                "deviceName": Config.device_name,
+                "deviceInfo": "",
+                "platform": platform.platform(),
+                "machine": platform.machine(),
+                "appVersion": Config.version,
+                "screenResolution": f"{pyautogui.size().width}x{pyautogui.size().height}",
+            }
+        }
+    }
 
 
 def main():
     import sys
+
     if len(sys.argv) > 1 and sys.argv[1] == "--driver-host":
         from .drivers.host import run_driver
         driver_file = sys.argv[2]
@@ -199,48 +219,83 @@ def main():
         run_driver(driver_file, packages_dir)
         return
 
+    if "--no-ui" not in sys.argv:
+        try:
+            import qasync
+            from . import ui
+
+            Config._ui = True
+        except ImportError:
+            pass
+
     async def start():
-        from . import config as app_config
-        from . import user
-
-        import platform
-        import pyautogui
-
-        # 启动即完成登录，失败直接退出，不必先等驱动扫描与依赖安装
-        await asyncio.to_thread(user.ensure_tokens)
-
         from .drivers import registry
         registry.scan()
 
-        client_config = {
-            "url": WS_URL,
-            "status": {
-                "device": {
-                    "type": "client",
-                    "deviceName": app_config.DEVICE_NAME,
-                    "deviceInfo": "",
-                    "platform": platform.platform(),
-                    "machine": platform.machine(),
-                    "appVersion": app_config.VERSION,
-                    "screenResolution": f"{pyautogui.size().width}x{pyautogui.size().height}",
-                }
-            }
-        }
-        client = Client(**client_config)
+        client = Client(**_build_client_config())
 
         try:
-            # 监督循环退出即代表已停止重连(主动 close / 令牌不可用 / 达到重试上限)
             await client.connection
         finally:
             await client.close()
 
     try:
-        asyncio.run(start())
+        if Config._ui:
+            qt_app = ui.get_app()
+            loop = qasync.QEventLoop(qt_app)
+            asyncio.set_event_loop(loop)
+
+            from .drivers import registry
+            registry.scan()
+
+            _state = {"client": None, "task": None}
+
+            def _on_auth_changed(logged_in: bool):
+                if logged_in:
+                    if _state["client"]:
+                        return
+                    _state["client"] = Client(**_build_client_config())
+                    _state["task"] = asyncio.ensure_future(_state["client"].connection)
+                else:
+                    if _state["task"] and not _state["task"].done():
+                        _state["task"].cancel()
+                    if _state["client"]:
+                        client = _state["client"]
+                        _state["client"] = None
+                        _state["task"] = None
+                        asyncio.ensure_future(client.close())
+
+            ui.window.auth_changed.connect(_on_auth_changed)
+
+            def _on_close():
+                _on_auth_changed(False)
+                ui.window.on_close()
+                loop.stop()
+            qt_app.lastWindowClosed.connect(_on_close)
+
+            loop.run_forever()
+        else:
+            loop = asyncio.new_event_loop()
+            task = loop.create_task(start())
+            asyncio.set_event_loop(loop)
+            loop.run_forever()
     except KeyboardInterrupt:
-        logger.info(i18n.translate("system.close"))
+        if Config._ui:
+            ui.window.on_close()
+        else:
+            task.cancel()
+            try:
+                loop.run_until_complete(task)
+            except BaseException:
+                pass
+        logger.debug(i18n.translate("system.close"))
     finally:
+        from .user.login import _login_proc
+        if _login_proc is not None and _login_proc.is_alive():
+            _login_proc.terminate()
         from .drivers import registry as drv_registry
         drv_registry.shutdown()
+
 
 if __name__ == "__main__":
     main()

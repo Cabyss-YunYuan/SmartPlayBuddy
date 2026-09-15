@@ -11,7 +11,7 @@ import websockets
 import json
 from abc import ABC, abstractmethod
 from .. import i18n
-from .. import log
+from .. import logger
 from . import logic
 from . import message
 
@@ -20,7 +20,7 @@ try:  # websockets >= 14 抛 InvalidStatus，旧版本抛 InvalidStatusCode
 except ImportError:  # pragma: no cover
     from websockets.exceptions import InvalidStatusCode as _InvalidStatus
 
-logger = log.logger.getChild("Connector")
+logger = logger.logger.getChild("Connector")
 
 # 服务端在 access token 被吊销(他处登出)时使用的关闭码，见 claimlogic.go closeCodeTokenRevoked。
 # 此时 refresh token 通常一并被吊销，只能重新走浏览器登录。
@@ -127,17 +127,13 @@ class Connector(ABC):
             logger.warning(i18n.translate("connector.token_revoked"))
 
         try:
-            # login() 阻塞等待浏览器回调、refresh_login() 是阻塞 HTTP 调用，
-            # 都必须放到线程里，否则会卡死事件循环(驱动帧回调也调度在这个循环上)。
-            tokens = await asyncio.to_thread(user.ensure_tokens, None, revoked)
+            tokens = await user.ensure_tokens(None, revoked)
         except Exception as e:
             logger.error(i18n.translate("connector.auth_failed", error=e))
             return False
 
         if not isinstance(self.config.get("headers"), dict):
             self.config["headers"] = {}
-        # 服务端 WS 握手改为从 HttpOnly cookie 读取 access token，不再支持 Bearer 头；
-        # 非浏览器客户端需自行携带 Cookie 头。
         self.config["headers"]["Cookie"] = f"{ACCESS_COOKIE_NAME}={tokens.access_token}"
         return True
 

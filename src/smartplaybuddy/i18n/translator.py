@@ -4,9 +4,9 @@
 """
 import json
 import importlib.resources
-from .. import log
+from .. import logger
 
-logger = log.logger.getChild("Translator")
+logger = logger.logger.getChild("Translator")
 
 class Translator:
     language: str = "zh_CN"
