@@ -44,7 +44,7 @@ SDK 以标准 ES Module 形式托管在平台的 `/sdk/` 路径下，并已开�
 
 ```html
 <script type="module">
-  import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
+  import { WSBridge, Message } from 'https://smtplay.cabyss.cn/sdk/WSBridge.js'
 
   // 开始使用……
 </script>
@@ -65,7 +65,7 @@ SDK 以标准 ES Module 形式托管在平台的 `/sdk/` 路径下，并已开�
 
 ```html
 <script type="module">
-  import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
+  import { WSBridge, Message } from 'https://smtplay.cabyss.cn/sdk/WSBridge.js'
 
   // 1. 创建桥（构造时会自动向平台握手）
   const smtplay = new WSBridge()
@@ -280,7 +280,7 @@ console.log('响应数据：', resp.data)
   <ul id="log"></ul>
 
   <script type="module">
-    import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
+    import { WSBridge, Message } from 'https://smtplay.cabyss.cn/sdk/WSBridge.js'
 
     const smtplay = new WSBridge()
     const statusEl = document.getElementById('status')

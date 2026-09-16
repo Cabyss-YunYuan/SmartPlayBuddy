@@ -42,10 +42,10 @@ class Config:
     version: str = "v0.0.1"
 
     server_host: str = os.environ.get(
-        "SMTPLAY_SERVER_HOST", "http://smtplay.cabyss.cn:8000"
+        "SMTPLAY_SERVER_HOST", "https://smtplay.cabyss.cn"
     )
     ws_url: str = os.environ.get(
-        "SMTPLAY_WS_URL", "ws://smtplay.cabyss.cn:2508/ws"
+        "SMTPLAY_WS_URL", "wss://smtplay.cabyss.cn/ws"
     )
 
     device_name: str = (

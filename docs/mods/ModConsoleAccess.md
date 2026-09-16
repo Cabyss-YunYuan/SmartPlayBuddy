@@ -41,7 +41,7 @@ The SDK is hosted as a standard ES Module under the platform's `/sdk/` path with
 
 ```html
 <script type="module">
-  import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
+  import { WSBridge, Message } from 'https://smtplay.cabyss.cn/sdk/WSBridge.js'
 
   // Start using...
 </script>
@@ -62,7 +62,7 @@ Two modules are available:
 
 ```html
 <script type="module">
-  import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
+  import { WSBridge, Message } from 'https://smtplay.cabyss.cn/sdk/WSBridge.js'
 
   // 1. Create the bridge (automatically handshakes with the platform on construction)
   const smtplay = new WSBridge()
@@ -274,7 +274,7 @@ console.log('Response data:', resp.data)
   <ul id="log"></ul>
 
   <script type="module">
-    import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
+    import { WSBridge, Message } from 'https://smtplay.cabyss.cn/sdk/WSBridge.js'
 
     const smtplay = new WSBridge()
     const statusEl = document.getElementById('status')
