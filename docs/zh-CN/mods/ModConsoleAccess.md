@@ -16,18 +16,18 @@
 ## 一、运行模型
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  SmartPlayBuddy 平台页面                                   │
+┌───────────────────────────────────────────────────────────┐
+│  SmartPlayBuddy 平台页面                                  │
 │                                                           │
 │   ┌───────────────────┐        postMessage                │
-│   │  你的 Mod (iframe) │ <──────────────────────────────> │
-│   │  SmtplayWSBridge   │        （SDK 信封 + 标记）        │
+│   │ 你的 Mod (iframe) │ <──────────────────────────────>  │
+│   │ WSBridge          │        （SDK 信封 + 标记）        │
 │   └───────────────────┘                                   │
 │            │                                              │
-│            │ 平台桥接 (useWSBridge)                        │
+│            │ 平台桥接 (useWSBridge)                       │
 │            ▼                                              │
-│      WebSocket  ⇄  后端服务                                │
-└─────────────────────────────────────────────────────────┘
+│      WebSocket  ⇄  后端服务                               │
+└───────────────────────────────────────────────────────────┘
 ```
 
 - 你的页面运行在 `iframe` 中，`sandbox` 属性为 `allow-scripts allow-same-origin allow-forms`。
@@ -44,7 +44,7 @@ SDK 以标准 ES Module 形式托管在平台的 `/sdk/` 路径下，并已开�
 
 ```html
 <script type="module">
-  import { SmtplayWSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/SmtplayWSBridge.js'
+  import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
 
   // 开始使用……
 </script>
@@ -56,7 +56,7 @@ SDK 以标准 ES Module 形式托管在平台的 `/sdk/` 路径下，并已开�
 
 | 模块 | 说明 |
 | --- | --- |
-| `SmtplayWSBridge.js` | 通信桥，负责握手、收发、二进制拆包 |
+| `WSBridge.js` | 通信桥，负责握手、收发、二进制拆包 |
 | `Message.js` | 消息数据结构，负责字段封装与 Base64 编解码 |
 
 ---
@@ -65,10 +65,10 @@ SDK 以标准 ES Module 形式托管在平台的 `/sdk/` 路径下，并已开�
 
 ```html
 <script type="module">
-  import { SmtplayWSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/SmtplayWSBridge.js'
+  import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
 
   // 1. 创建桥（构造时会自动向平台握手）
-  const smtplay = new SmtplayWSBridge()
+  const smtplay = new WSBridge()
 
   // 2. 判断是否被平台嵌入
   if (smtplay.is_embedded()) {
@@ -280,9 +280,9 @@ console.log('响应数据：', resp.data)
   <ul id="log"></ul>
 
   <script type="module">
-    import { SmtplayWSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/SmtplayWSBridge.js'
+    import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
 
-    const smtplay = new SmtplayWSBridge()
+    const smtplay = new WSBridge()
     const statusEl = document.getElementById('status')
     const logEl = document.getElementById('log')
 
@@ -332,7 +332,7 @@ console.log('响应数据：', resp.data)
 
 ## 十一、接入清单
 
-- [ ] 页面使用 `type="module"` 引入 `SmtplayWSBridge.js`
+- [ ] 页面使用 `type="module"` 引入 `WSBridge.js`
 - [ ] 全局只创建一个 `SmtplayWSBridge` 实例
 - [ ] 通过 `is_embedded()` 判断运行环境并给出提示
 - [ ] 用 `recv()` 注册接收回调

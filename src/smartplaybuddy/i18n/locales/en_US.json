@@ -67,7 +67,8 @@
       "token_exchange_failed": "Token exchange failed: no access_token received",
       "browser_success": "Login successful! You can close this page.",
       "browser_failed": "Login failed: missing authorization code.",
-      "unknown_error": "Unknown login error"
+      "unknown_error": "Unknown login error",
+      "ui_mode_no_auto_login": "UI mode: login is handled by the web app, not auto-triggered"
     }
   },
   "driver": {
@@ -92,7 +93,9 @@
     "discovered": "Driver discovered: {name} ({path})",
     "duplicate_name": "Driver name '{name}' conflict: {existing} duplicates {path}",
     "manifest_missing_fields": "Driver '{name}' manifest missing required fields: {fields}",
-    "manifest_read_failed": "Failed to read driver '{name}' manifest: {error}"
+    "manifest_read_failed": "Failed to read driver '{name}' manifest: {error}",
+    "package_not_found": "Package '{package}' not found in {path}",
+    "error_fallback": "Driver error"
   },
   "client": {
     "response_sent": "Response sent: {size} bytes → {to}",
@@ -105,6 +108,28 @@
     "invalid_data_type": "Invalid data type",
     "invalid_message_type": "Invalid message type",
     "token_revoked": "Access token revoked, please log in again on next start"
+  },
+  "bridge": {
+    "no_free_port": "No free port available for the local bridge",
+    "started": "Local WebSocket bridge started at 127.0.0.1:{port}",
+    "stopped": "Local WebSocket bridge stopped",
+    "serve_failed": "Local bridge serve failed: {error}",
+    "start_failed": "Failed to start local bridge: {error}",
+    "unauthorized": "Local bridge handshake rejected: session token mismatch",
+    "bad_origin": "Local bridge rejected origin: {origin}",
+    "web_connected": "Web console connected to local bridge (origin={origin})",
+    "web_disconnected": "Web console disconnected from local bridge",
+    "handler_error": "Local bridge connection handler error: {error}",
+    "binary_without_text": "Binary frame received without preceding text frame, discarded",
+    "msg_parse_failed": "Web message parse failed: {msg}",
+    "msg_field_missing": "Web message missing required field [{field}]: {msg}",
+    "forward_failed": "Failed to forward to server: {error}",
+    "relay_no_target": "No matching web connection for server reply, discarded: requestId={request_id}",
+    "relay_failed": "Failed to relay reply to web: {error}",
+    "orphan_stream_stop": "Web disconnected, stopping its remote stream: stream_id={stream_id}, to={to}",
+    "orphan_stream_stop_failed": "Failed to stop remote stream: {error}",
+    "missing_field": "Missing required field: {field}",
+    "server_not_ready": "Server not ready"
   },
   "ui": {
     "login": {

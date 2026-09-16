@@ -9,8 +9,15 @@ from pathlib import Path
 
 
 def _load_dotenv():
-    env_file = Path(__file__).resolve().parents[3] / ".env"
-    if not env_file.exists():
+    # 从本文件所在目录逐级向上查找最近的 .env
+    # (源码 src 布局下项目根在 parents[2]；向上搜索可兼容不同安装/打包布局)
+    env_file = None
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / ".env"
+        if candidate.exists():
+            env_file = candidate
+            break
+    if env_file is None:
         return
     with open(env_file, encoding="utf-8") as f:
         for line in f:

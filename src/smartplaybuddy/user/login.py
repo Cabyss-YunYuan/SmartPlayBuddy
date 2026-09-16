@@ -162,7 +162,7 @@ _login_proc: multiprocessing.Process | None = None
 async def _do_login() -> Tokens:
     """交互式登录：无 UI 时走系统浏览器子进程。有 UI 时由 Web 应用处理，不自动弹窗。"""
     if Config._ui:
-        raise RuntimeError("UI mode: login is handled by the web app, not auto-triggered")
+        raise RuntimeError(i18n.translate("user.login.ui_mode_no_auto_login"))
 
     return await _do_login_subprocess()
 

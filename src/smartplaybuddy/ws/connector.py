@@ -186,7 +186,7 @@ class Connector(ABC):
             # 握手被拒：missing / invalid / revoked token，刷新令牌后重连
             status = getattr(getattr(e, "response", None), "status_code", None)
             self.close_code = status
-            logger.error(i18n.translate("connector.handshake_rejected", code=status, error=e))
+            logger.warning(i18n.translate("connector.handshake_rejected", code=status, error=e))
         except websockets.exceptions.ConnectionClosed as e:
             if e.rcvd is not None:
                 self.close_code = e.rcvd.code
@@ -195,7 +195,7 @@ class Connector(ABC):
             logger.debug(i18n.translate("message.connect_closed"))
         except OSError as e:
             # 涵盖 ConnectionRefusedError / socket.gaierror / 网络不可达
-            logger.error(i18n.translate("message.connect_server_failed"))
+            logger.warning(i18n.translate("message.connect_server_failed"))
             logger.debug(str(e))
         except Exception as e:
             logger.error(i18n.translate("connector.connect_failed", error=e), exc_info=True)
@@ -222,7 +222,7 @@ class Connector(ABC):
                         pending = None
                         logger.debug(i18n.translate("connector.binary_paired", type=msg.Type, action=msg.Action))
                     else:
-                        logger.error(i18n.translate("connector.binary_without_text"))
+                        logger.warning(i18n.translate("connector.binary_without_text"))
                         continue
                 # 文本帧：解析 JSON 并检查是否需要等待后续二进制帧
                 else:
@@ -267,19 +267,16 @@ class Connector(ABC):
                         logger.error(i18n.translate("connector.claim_rejected", reason=msg.Data))
                         await self._drop_connection()
                         break
-                    logger.error(msg.Data)
-                    continue
+                    # 其余无 from 的服务端 error 不再 continue：交给 main() 镜像给网页并记录
 
                 # 收到任何带 from 的消息说明服务端已按本设备地址完成路由，claim 必然已生效
                 if msg.From:
                     self._claim_pending = False
 
-                # 系统消息走内部逻辑，不再派发到子类：
-                # 子类普遍只处理 command，pong 会被当成"无效消息类型"回一条无 to 的 error，
-                # 服务端 ErrorLogic 对空 to 查 Redis 必然 nil，只会白刷 SEVERE 日志。
+                # 系统消息(pong 等)先走内部逻辑，随后与其余消息一并派发到 main()，
+                # 由 main() 无条件镜像回内嵌网页；不再 continue，否则网页永远收不到 pong。
                 if msg.Type == "system":
                     logic.system(self, msg)
-                    continue
                 await self.main(msg)
             except websockets.exceptions.ConnectionClosed:
                 break
@@ -319,8 +316,6 @@ class Connector(ABC):
 
         async def error(self, data, To: str | None = None, RequestID: str | None = None):
             if not To:
-                # 服务端自身产生的消息(pong、claim 被拒等)不带 from，无处可回；
-                # 回发只会让服务端按空 to 查 Redis 并打一条 SEVERE 日志。
-                logger.warning(i18n.translate("connector.error_no_target", data=data))
+                # 无 to 的消息一般由服务端自行处理，本地无处可回，静默丢弃(不再告警刷屏)
                 return
             await self.conn.send(message.error.error(data, To=To, RequestID=RequestID))

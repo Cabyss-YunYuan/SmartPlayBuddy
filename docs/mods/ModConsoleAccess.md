@@ -14,18 +14,18 @@ The platform will load your page into an `iframe` and handle forwarding data bet
 ## 1. Runtime Model
 
 ```
-┌─────────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────────┐
 │  SmartPlayBuddy Platform Page                             │
 │                                                           │
 │   ┌───────────────────┐        postMessage                │
-│   │  Your Mod (iframe) │ <──────────────────────────────> │
-│   │  SmtplayWSBridge   │        (SDK envelope + markers)  │
+│   │ Your Mod (iframe) │ <──────────────────────────────>  │
+│   │ WSBridge          │        (SDK envelope + markers)   │
 │   └───────────────────┘                                   │
 │            │                                              │
 │            │ Platform bridge (useWSBridge)                │
 │            ▼                                              │
 │      WebSocket  ⇄  Backend Service                        │
-└─────────────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────────────┘
 ```
 
 - Your page runs inside an `iframe` with the `sandbox` attribute set to `allow-scripts allow-same-origin allow-forms`.
@@ -41,7 +41,7 @@ The SDK is hosted as a standard ES Module under the platform's `/sdk/` path with
 
 ```html
 <script type="module">
-  import { SmtplayWSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/SmtplayWSBridge.js'
+  import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
 
   // Start using...
 </script>
@@ -53,7 +53,7 @@ Two modules are available:
 
 | Module | Description |
 | --- | --- |
-| `SmtplayWSBridge.js` | Communication bridge, handles handshaking, sending/receiving, binary frame splitting |
+| `WSBridge.js` | Communication bridge, handles handshaking, sending/receiving, binary frame splitting |
 | `Message.js` | Message data structure, handles field encapsulation and Base64 encoding/decoding |
 
 ---
@@ -62,10 +62,10 @@ Two modules are available:
 
 ```html
 <script type="module">
-  import { SmtplayWSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/SmtplayWSBridge.js'
+  import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
 
   // 1. Create the bridge (automatically handshakes with the platform on construction)
-  const smtplay = new SmtplayWSBridge()
+  const smtplay = new WSBridge()
 
   // 2. Check whether embedded by the platform
   if (smtplay.is_embedded()) {
@@ -274,9 +274,9 @@ console.log('Response data:', resp.data)
   <ul id="log"></ul>
 
   <script type="module">
-    import { SmtplayWSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/SmtplayWSBridge.js'
+    import { WSBridge, Message } from 'http://smtplay.cabyss.cn:8080/sdk/WSBridge.js'
 
-    const smtplay = new SmtplayWSBridge()
+    const smtplay = new WSBridge()
     const statusEl = document.getElementById('status')
     const logEl = document.getElementById('log')
 
@@ -326,7 +326,7 @@ console.log('Response data:', resp.data)
 
 ## 11. Integration Checklist
 
-- [ ] The page imports `SmtplayWSBridge.js` using `type="module"`
+- [ ] The page imports `WSBridge.js` using `type="module"`
 - [ ] Only one `SmtplayWSBridge` instance is created globally
 - [ ] Use `is_embedded()` to determine the runtime environment and provide a hint
 - [ ] Register a receive callback with `recv()`

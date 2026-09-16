@@ -307,7 +307,7 @@ class DriverRegistry:
                     dist_info_pattern = f"{pkg_name.replace('-', '_')}-*.dist-info"
                     dist_info_pattern2 = f"{pkg_name.replace('-', '_').lower()}-*.dist-info"
                     if not pkg_dir.exists() and not list(packages_dir.glob(dist_info_pattern)) and not list(packages_dir.glob(dist_info_pattern2)):
-                        logger.debug(f"Package '{pkg_name}' not found in {packages_dir}")
+                        logger.debug(translate("driver.package_not_found", package=pkg_name, path=packages_dir))
                         return False
             return True
         except Exception:

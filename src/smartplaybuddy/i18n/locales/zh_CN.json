@@ -67,7 +67,8 @@
       "token_exchange_failed": "令牌兑换失败，未收到 access_token",
       "browser_success": "登录成功！可以关闭此页面。",
       "browser_failed": "登录失败：缺少授权码。",
-      "unknown_error": "未知登录错误"
+      "unknown_error": "未知登录错误",
+      "ui_mode_no_auto_login": "UI 模式：登录由 Web 应用处理，不会自动触发"
     }
   },
   "driver": {
@@ -92,7 +93,9 @@
     "discovered": "发现驱动: {name} ({path})",
     "duplicate_name": "驱动名称 '{name}' 冲突: {existing} 与 {path} 重复",
     "manifest_missing_fields": "驱动 '{name}' 的 manifest 缺少必填字段: {fields}",
-    "manifest_read_failed": "读取驱动 '{name}' 的 manifest 失败: {error}"
+    "manifest_read_failed": "读取驱动 '{name}' 的 manifest 失败: {error}",
+    "package_not_found": "在 {path} 中未找到依赖包 '{package}'",
+    "error_fallback": "驱动错误"
   },
   "client": {
     "response_sent": "响应已发送: {size} 字节 → {to}",
@@ -105,6 +108,28 @@
     "invalid_data_type": "无效的数据类型",
     "invalid_message_type": "无效的消息类型",
     "token_revoked": "访问令牌已被吊销，下次启动需重新登录"
+  },
+  "bridge": {
+    "no_free_port": "无法找到可用的空闲端口用于本地桥",
+    "started": "本地 WebSocket 桥已启动: 127.0.0.1:{port}",
+    "stopped": "本地 WebSocket 桥已停止",
+    "serve_failed": "本地桥服务失败: {error}",
+    "start_failed": "启动本地桥失败: {error}",
+    "unauthorized": "本地桥握手被拒：会话 token 不匹配",
+    "bad_origin": "本地桥拒绝来源: {origin}",
+    "web_connected": "网页控制台已连接本地桥 (origin={origin})",
+    "web_disconnected": "网页控制台已断开本地桥",
+    "handler_error": "本地桥连接处理异常: {error}",
+    "binary_without_text": "收到没有前置文本帧的二进制帧，已丢弃",
+    "msg_parse_failed": "网页消息解析失败: {msg}",
+    "msg_field_missing": "网页消息缺少必填字段 [{field}]: {msg}",
+    "forward_failed": "转发到服务端失败: {error}",
+    "relay_no_target": "服务端回执无对应网页连接，已丢弃: requestId={request_id}",
+    "relay_failed": "回执转发网页失败: {error}",
+    "orphan_stream_stop": "网页断开，停止其发起的远端流: stream_id={stream_id}, to={to}",
+    "orphan_stream_stop_failed": "停止远端流失败: {error}",
+    "missing_field": "缺少必填字段: {field}",
+    "server_not_ready": "服务未就绪"
   },
   "ui": {
     "login": {

@@ -5,6 +5,7 @@ keyring 为唯一令牌源，cookie 仅作为传输层。
 认证状态变化通过 auth_changed 信号通知外部。
 """
 import time
+import asyncio
 from PyQt6.QtWidgets import QMainWindow
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage, QWebEngineScript
@@ -13,9 +14,10 @@ from PyQt6.QtNetwork import QNetworkCookie
 from .config import Config
 from ..user.login import (
     Tokens, save_tokens, clear_tokens, _load_tokens,
-    access_token_ttl, decode_jwt_payload,
+    access_token_ttl, decode_jwt_payload, refresh_login,
     ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME, TOKEN_REFRESH_MARGIN,
 )
+from .. import i18n
 
 
 class MainWindow(QMainWindow):
@@ -24,7 +26,7 @@ class MainWindow(QMainWindow):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.setWindowTitle(config.version)
+        self.setWindowTitle(i18n.translate("app.name"))
 
         self._profile = QWebEngineProfile(self)
         self._profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.MemoryHttpCache)
@@ -50,20 +52,44 @@ class MainWindow(QMainWindow):
         self._logout_timer.timeout.connect(self._check_logout)
         self._logout_timer.start()
 
+    @property
+    def web_url(self) -> str:
+        """内嵌窗口实际加载的 Web 应用地址（单一来源：Config.web_url）。"""
+        return Config.web_url
+
     def _init_auth(self):
-        """从 keyring 加载令牌：有效则注入 cookie，无效则加载 Web 应用并弹出登录对话框。"""
+        """从 keyring 加载令牌：有效则注入 cookie；access token 过期但 refresh token
+        仍可用时后台静默刷新（不阻塞 Qt 主线程）；都失败才加载 Web 应用并弹出登录对话框。"""
         tokens = _load_tokens()
-        web_url = self.config.server_host.replace(":8000", ":8080")
+        web_url = self.web_url
         if tokens and tokens.access_token:
             ttl = access_token_ttl(tokens.access_token)
-            if ttl is not None and ttl > TOKEN_REFRESH_MARGIN:
-                Config.user = decode_jwt_payload(tokens.access_token)
-                self._inject_cookies(tokens)
-                self._set_authenticated(True)
+            if ttl is None or ttl > TOKEN_REFRESH_MARGIN:
+                self._apply_tokens(tokens)
                 return
+            # access token 已过期/临近过期：先展示窗口，再在后台线程刷新，避免阻塞 UI
+            self._web_view.load(QUrl(web_url))
+            self.show()
+            asyncio.ensure_future(self._refresh_tokens(tokens))
+            return
         self._web_view.load(QUrl(web_url))
         self.show()
         QTimer.singleShot(300, self._show_login_dialog)
+
+    async def _refresh_tokens(self, tokens: Tokens):
+        """在线程池中执行同步的 refresh_login，避免阻塞 Qt 主线程；失败则弹登录框。"""
+        loop = asyncio.get_running_loop()
+        refreshed = await loop.run_in_executor(None, refresh_login, tokens)
+        if refreshed is not None:
+            self._apply_tokens(refreshed)
+        else:
+            QTimer.singleShot(0, self._show_login_dialog)
+
+    def _apply_tokens(self, tokens: Tokens):
+        """令牌可用：写入 Config.user、注入 cookie 并置为已认证。"""
+        Config.user = decode_jwt_payload(tokens.access_token)
+        self._inject_cookies(tokens)
+        self._set_authenticated(True)
 
     def _show_login_dialog(self):
         """弹出登录对话框，成功后刷新主窗口；取消则保留当前状态。"""
@@ -72,13 +98,11 @@ class MainWindow(QMainWindow):
             tokens = gui_login(self.config.server_host)
         except RuntimeError:
             return
-        Config.user = decode_jwt_payload(tokens.access_token)
-        self._inject_cookies(tokens)
-        self._set_authenticated(True)
+        self._apply_tokens(tokens)
 
     def _inject_cookies(self, tokens: Tokens):
         """从 keyring 读取令牌，注入 cookie 和 localStorage 到 Web 视图。"""
-        target_url = QUrl(self.config.server_host.replace(":8000", ":8080"))
+        target_url = QUrl(self.web_url)
         store = self._profile.cookieStore()
 
         self._last_saved_token = tokens.access_token
@@ -181,6 +205,40 @@ class MainWindow(QMainWindow):
             return
         self._authenticated = value
         self.auth_changed.emit(value)
+
+    def set_native_bridge(self, ws_url: str, token: str):
+        """把本地 WS 桥地址与一次性会话 token 注入顶层页面。
+
+        安全要点：setRunsOnSubFrames(False) 确保只注入平台页，
+        绝不注入第三方 mod iframe——mod 只能通过 postMessage 与平台页通信，
+        拿不到控制本机键鼠的本地桥凭据。
+        """
+        source = (
+            f'window.__smtplay_native = {{wsUrl: "{ws_url}", token: "{token}"}};'
+            'window.dispatchEvent(new Event("smtplay-native-ready"));'
+        )
+        for s in self._profile.scripts().find("__smtplay_native"):
+            self._profile.scripts().remove(s)
+
+        js = QWebEngineScript()
+        js.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        js.setWorldId(0)
+        js.setRunsOnSubFrames(False)
+        js.setName("__smtplay_native")
+        js.setSourceCode(source)
+        self._profile.scripts().insert(js)
+
+        # 页面可能已加载完成，立即补设一次并派发事件，避免竞态
+        self._web_view.page().runJavaScript(source)
+
+    def clear_native_bridge(self):
+        """退出登录/桥停止后清除注入，避免网页连向已失效的本地端口。"""
+        for s in self._profile.scripts().find("__smtplay_native"):
+            self._profile.scripts().remove(s)
+        self._web_view.page().runJavaScript(
+            'delete window.__smtplay_native;'
+            'window.dispatchEvent(new Event("smtplay-native-gone"));'
+        )
 
     def on_close(self):
         self._logout_timer.stop()
