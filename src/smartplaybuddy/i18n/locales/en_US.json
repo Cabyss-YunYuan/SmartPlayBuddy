@@ -107,7 +107,17 @@
     "exception_in_main": "main handler exception: {type}: {error}",
     "invalid_data_type": "Invalid data type",
     "invalid_message_type": "Invalid message type",
-    "token_revoked": "Access token revoked, please log in again on next start"
+    "token_revoked": "Access token revoked, please log in again on next start",
+    "log_stream_started": "Log stream started for {to} (level={level})",
+    "log_stream_stopped": "Log stream stopped: stream_id={stream_id}, sender={sender}",
+    "log_unsupported_operate": "Unsupported log operate: {operate}",
+    "keepalive_send_failed": "Keepalive ping send failed (channel down, stopping stream): stream_id={stream_id}, error={error}",
+    "keepalive_tick_failed": "Keepalive loop tick failed: {error}"
+  },
+  "logstream": {
+    "subscribed": "Log stream subscribed: stream_id={stream_id}, level={level}, name={name}",
+    "unsubscribed": "Log stream unsubscribed: stream_id={stream_id}",
+    "send_failed": "Log stream send failed, unsubscribing: stream_id={stream_id}, error={error}"
   },
   "bridge": {
     "no_free_port": "No free port available for the local bridge",
@@ -124,6 +134,7 @@
     "msg_parse_failed": "Web message parse failed: {msg}",
     "msg_field_missing": "Web message missing required field [{field}]: {msg}",
     "forward_failed": "Failed to forward to server: {error}",
+    "forward_not_connected": "Client not yet connected to server; message cannot be forwarded, please retry later",
     "relay_no_target": "No matching web connection for server reply, discarded: requestId={request_id}",
     "relay_failed": "Failed to relay reply to web: {error}",
     "orphan_stream_stop": "Web disconnected, stopping its remote stream: stream_id={stream_id}, to={to}",

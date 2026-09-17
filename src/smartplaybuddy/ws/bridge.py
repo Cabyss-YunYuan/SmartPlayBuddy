@@ -5,9 +5,10 @@
 从而让服务端只看到 client 这一条连接。职责：
   - 用一次性会话 token(经子协议协商) + Origin 校验把守本地端口；
   - 复刻 text+binary 双帧协议与 Web SDK 通信；
-  - 按目标地址分流：
-      * to 明确指向本机 client 设备的命令 → 就地交给 Client 执行，结果直接回给网页；
-      * 其它(含 to 留空) → 透传到服务端那条唯一连接；
+  - 网页在桥模式下不 claim(见 wsClient.claim)：设备身份始终由桌面 client 那条唯一连接持有；
+  - 按目标地址分流(仅上行)：
+      * to 指向本机 client 设备的命令 → 就地交给 Client 执行，结果直接回给网页；
+      * 其余(含 claim、to 留空、远端地址) → 透传到服务端那条唯一连接；
   - 回程镜像：服务端下发的所有消息无条件转发回内嵌窗口，无论本地是否处理过。
 """
 import asyncio
@@ -20,6 +21,8 @@ import websockets
 
 from .. import i18n
 from .. import logger
+from ..config import Config
+from . import logic
 from . import message
 from .message.message import Message
 
@@ -29,8 +32,29 @@ logger = logger.logger.getChild("LocalBridge")
 CLOSE_CODE_UNAUTHORIZED = 4401
 CLOSE_CODE_BAD_ORIGIN = 4403
 
-#: 网页控制本机时统一使用的 From 标识。仅用于本机 _active_streams 记账，不经服务端。
-LOCAL_WEB_ADDRESS = "web:local"
+#: 本地记账地址前缀，形如 local:{conn}。网页在桥模式下不 claim、无服务端身份，
+#: 桥为每条网页连接分配一个本地记账地址，仅用作就地执行时的 msg.From(流记账/回流键)。
+#: 刻意避开服务端合法设备类型(client/mod/web)，因此永不可能是服务端可路由地址，也永不发往服务端。
+INTERNAL_ADDRESS_PREFIX = "local"
+
+
+def _resolve_uid() -> str:
+    """从登录令牌解析出的 Config.user 里取用户 id(键名固定为 uid)。
+    必须与服务端 devicekey.Address 使用的 userInfo.Id(即 IAM claims.UID) 一致。"""
+    user = getattr(Config, "user", None) or {}
+    val = user.get("uid")
+    return "" if val is None else str(val)
+
+
+class _WebPongSender:
+    """轻量 wrapper：把 logic.system 的 send 调用重定向到 web 回复通道。"""
+    __slots__ = ("_reply",)
+
+    def __init__(self, reply: "_WebReply"):
+        self._reply = reply
+
+    async def send(self, payload: str):
+        await self._reply.send_json(payload)
 
 
 @dataclass
@@ -48,6 +72,10 @@ class _WebReply:
     def __init__(self, connection):
         self._conn = connection
         self._lock = asyncio.Lock()
+        #: 该网页连接的本地记账地址 local:{conn}：连接建立即分配、生命周期内稳定。
+        #: 网页在桥模式下不 claim、无服务端身份，此地址仅用作就地执行时的 msg.From
+        #: (流记账/回流键)，永不发往服务端。
+        self.address: str = f"{INTERNAL_ADDRESS_PREFIX}:{id(self):x}"
 
     async def send_json(self, payload: str):
         async with self._lock:
@@ -225,28 +253,59 @@ class LocalBridge:
                 except (json.JSONDecodeError, ValueError):
                     pass
 
+    def _client_address_prefix(self) -> str:
+        """本机 client 在服务端的地址前缀：client:{uid}:{clientDeviceName}。
+        也是 mod 扩展地址 client:{uid}:{clientDeviceName}:{mod} 的前三段。
+        uid 未就绪时返回空串。"""
+        uid = _resolve_uid()
+        if not uid:
+            return ""
+        return f"client:{uid}:{self._client.device_name}"
+
     def _is_local_target(self, to: str | None) -> bool:
-        # 仅当 to 明确指向本机 client 设备(同 type + 同 deviceName)才本地执行；
-        # to 留空或指向其它设备一律转发到服务端。
-        # deviceName 已被清洗为无冒号字符，按 ":" 三段切分可靠。
+        # 上行只拦"to 精确指向本机设备本身"的消息就地执行；命中以下任一即本地：
+        #   1) 本地记账地址 local[:{conn}]——桥内部标识，永不发往服务端；
+        #   2) 本机 client 地址 client:{uid}:{deviceName}(精确三段)。
+        # 带 :{mod} 子通道的地址客户端不解释——透传服务端按 base 回环、再由 web 分流，
+        # 客户端不参与 mod 管理。
         if not to:
             return False
+        if to == INTERNAL_ADDRESS_PREFIX or to.startswith(INTERNAL_ADDRESS_PREFIX + ":"):
+            return True
+        prefix = self._client_address_prefix()
+        if prefix:
+            return to == prefix
+        # uid 未就绪时兜底：仅按精确三段 type+uid+deviceName 判定本机设备本身。
         parts = to.split(":")
-        if len(parts) != 3:
-            return False
-        dev_type, _uid, device_name = parts
-        return dev_type == "client" and device_name == self._client.device_name
+        return len(parts) == 3 and parts[0] == "client" and parts[2] == self._client.device_name
 
     async def _dispatch(self, msg: Message, reply: _WebReply):
-        if self._is_local_target(msg.To):
-            # 本机控制：强制统一 From，保证 start/stop 流的记账一致
-            msg.From = LOCAL_WEB_ADDRESS
-            asyncio.create_task(self._client.execute_local(msg, reply))
+        local = self._is_local_target(msg.To)
+
+        # 本机网页的 system/* 消息全部交给全局 logic.system 处理（ping→pong、pong→延迟统计等），
+        # 通过 _WebPongSender 把回复重定向回 web（而非服务端）。
+        if local and msg.Type == "system":
+            logic.system(_WebPongSender(reply), msg)
+            return
+
+        if local:
+            # 保留网页原始 From 用于响应/帧路由(平台按 To 匹配 mod iframe)；
+            # reply.address 仅作为流记账 key，不写入 msg.From。
+            if not msg.From:
+                msg.From = reply.address
+            asyncio.create_task(self._client.execute_local(msg, reply, stream_key=reply.address))
             return
 
         operate = msg.Data.get("operate") if isinstance(msg.Data, dict) else None
         payload = msg.to_json()  # to_json 会在缺失时补全并回填 RequestID
         rid = msg.RequestID
+
+        # 客户端尚未连上服务端(启动竞态 / 断线重连中)：无法透传。明确回执网页稍后重试，
+        # 并按 DEBUG 记录——这是可自愈的瞬态，不该当转发失败刷 ERROR。
+        if not self._client.connected:
+            logger.debug(i18n.translate("bridge.forward_not_connected"))
+            await reply.error(i18n.translate("bridge.forward_not_connected"), RequestID=rid)
+            return
 
         # 仅登记流(用于网页断开时停掉远端流)；一次性命令的回程由 broadcast 无条件镜像
         if operate == "start_stream":
@@ -300,6 +359,9 @@ class LocalBridge:
                 asyncio.create_task(self._stop_remote_stream(st, stream_id))
 
     async def _stop_remote_stream(self, st: _StreamTarget, stream_id: str):
+        # 客户端已断线：远端流随那条连接一起失效，无需(也无法)再发 stop。
+        if not self._client.connected:
+            return
         try:
             stop = Message(
                 Type="command",

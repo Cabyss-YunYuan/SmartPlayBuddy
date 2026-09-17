@@ -107,7 +107,17 @@
     "exception_in_main": "main 处理异常: {type}: {error}",
     "invalid_data_type": "无效的数据类型",
     "invalid_message_type": "无效的消息类型",
-    "token_revoked": "访问令牌已被吊销，下次启动需重新登录"
+    "token_revoked": "访问令牌已被吊销，下次启动需重新登录",
+    "log_stream_started": "已为 {to} 开启日志流 (level={level})",
+    "log_stream_stopped": "日志流已停止: stream_id={stream_id}, sender={sender}",
+    "log_unsupported_operate": "不支持的日志操作: {operate}",
+    "keepalive_send_failed": "保活 ping 发送失败(通道已断，就地停流): stream_id={stream_id}, error={error}",
+    "keepalive_tick_failed": "保活循环本轮异常: {error}"
+  },
+  "logstream": {
+    "subscribed": "日志流已订阅: stream_id={stream_id}, level={level}, name={name}",
+    "unsubscribed": "日志流已退订: stream_id={stream_id}",
+    "send_failed": "日志流发送失败，自动退订: stream_id={stream_id}, error={error}"
   },
   "bridge": {
     "no_free_port": "无法找到可用的空闲端口用于本地桥",
@@ -124,6 +134,7 @@
     "msg_parse_failed": "网页消息解析失败: {msg}",
     "msg_field_missing": "网页消息缺少必填字段 [{field}]: {msg}",
     "forward_failed": "转发到服务端失败: {error}",
+    "forward_not_connected": "客户端尚未连接服务端，消息暂无法转发，请稍后重试",
     "relay_no_target": "服务端回执无对应网页连接，已丢弃: requestId={request_id}",
     "relay_failed": "回执转发网页失败: {error}",
     "orphan_stream_stop": "网页断开，停止其发起的远端流: stream_id={stream_id}, to={to}",

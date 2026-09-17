@@ -9,6 +9,8 @@ from . import logger
 from .config import Config
 from .drivers import drivers
 from .ws.bridge import LocalBridge
+from .ws.logstream import get_log_forwarder, LOG_ACTION
+# from .ws import message
 import asyncio
 from typing import Dict
 
@@ -38,17 +40,30 @@ class Client(ws.Connector):
 
     auto_auth = True
 
+    #: 流 ping 探针 (单独验证服务端路由/停流行为时用)。
+    _KEEPALIVE_ENABLED = True
+    #: 保活周期(秒)：每轮对所有在发流(日志/驱动 × 本地/远程)各发一条 ping 探对端是否还在。
+    _KEEPALIVE_INTERVAL = 1.0
+
     def __init__(self, **config):
         super().__init__(**config)
         self._stream_handler = None
         self._loop = asyncio.get_event_loop()
-        # 活跃流记录: {action: {from: [stream_id, ...]}}
-        self._active_streams: Dict[str, Dict[str, list[str]]] = {}
+        # 活跃流记录: {action: {from: {stream_id: reply}}}
+        # reply 与流同处存放：集中保活循环据此按每条流的原通道发 ping，无需另设映射。
+        self._active_streams: Dict[str, Dict[str, Dict[str, object]]] = {}
         #: 本地 WS 桥(UI 模式下由 main() 注入)；用于把网页发起的远端请求回执转回网页
         self.bridge: LocalBridge | None = None
         #: 本机设备名，供桥判定命令是否指向本机
         self.device_name = Config.device_name
         self._server_reply = _ServerReply(self)
+        #: 全局日志转发器(分级缓冲单例)；绑定当前事件循环用于实时转发
+        self._log_forwarder = get_log_forwarder(self._loop)
+        #: 集中保活循环：对所有在发流按 _KEEPALIVE_INTERVAL 周期探活(治对端离开后的"空跑")
+        #: _KEEPALIVE_ENABLED=False 时不创建 task，彻底停发保活 ping(排查服务端时用)。
+        self._keepalive_task = (
+            self._loop.create_task(self._keepalive_loop()) if self._KEEPALIVE_ENABLED else None
+        )
 
     async def main(self, msg) -> None:
         """处理服务端下发的消息。
@@ -61,23 +76,64 @@ class Client(ws.Connector):
         if msg.Type == "command":
             await self._execute_command(msg, self._server_reply)
         elif msg.Type == "error":
-            logger.error(msg.Data)
+            # 先按 rid 停流：命中=对端正常离开，停掉即止(stream_stopped 已记 info)。
+            # 未命中(rid 缺失/不认识)才落 error，且挂起转发——否则 error→日志→帧→error 自激，
+            # 日志会指数暴涨(曾撑到数百 MB)。
+            if not self._stop_stream_by_rid(msg.RequestID):
+                with self._log_forwarder.suppressed():
+                    logger.error(msg.Data)
         elif msg.Type not in ("response", "stream", "system"):
             await self.Error.error(i18n.translate("client.invalid_message_type"), To=msg.From, RequestID=msg.RequestID)
 
-    async def execute_local(self, msg, reply) -> None:
-        """由 LocalBridge 调用：网页控制本机，执行结果直接回给该网页连接。"""
-        await self._execute_command(msg, reply)
+    def _stop_stream_by_rid(self, rid) -> bool:
+        """服务端流路由失败时，按 rid(=stream_id) 定向停这一条流；返回是否命中并停掉。
 
-    async def _execute_command(self, msg, reply) -> None:
+        信任闸门：仅当 rid 命中本机已登记的在发流(日志订阅 _subs / 驱动流 _active_streams)
+        才停；rid 不认识则忽略。日志流只可能走 server_reply 通道，故限定该通道，绝不误伤
+        本地内嵌(_WebReply)的订阅。"""
+        if not rid:
+            return False
+        if self._log_forwarder.unsubscribe_by_stream(self._server_reply, rid):
+            logger.info(i18n.translate("client.stream_stopped",
+                                       action=LOG_ACTION, stream_id=rid, sender="route-error"))
+            return True
+        from .drivers import registry as drv_registry
+        for action, streams in list(self._active_streams.items()):
+            hit = False
+            for frm, sids in list(streams.items()):
+                if rid in sids:
+                    del sids[rid]
+                    if not sids:
+                        streams.pop(frm, None)
+                    hit = True
+                    break
+            if hit:
+                drv_registry.stop_stream(action, rid)
+                logger.info(i18n.translate("client.stream_stopped",
+                                           action=action, stream_id=rid, sender="route-error"))
+                return True
+        return False
+
+    async def execute_local(self, msg, reply, *, stream_key: str | None = None) -> None:
+        """由 LocalBridge 调用：网页控制本机，执行结果直接回给该网页连接。"""
+        await self._execute_command(msg, reply, stream_key=stream_key)
+
+    async def _execute_command(self, msg, reply, *, stream_key: str | None = None) -> None:
         try:
             data = msg.Data if isinstance(msg.Data, dict) else {}
             operate = data.get("operate")
+            _skey = stream_key or msg.From or ""
+
+            # 内置日志流：action=log 不经驱动子进程，直接在主进程订阅 SmtPlay logger
+            if msg.Action == LOG_ACTION:
+                await self._handle_log_stream(msg, reply, data, operate)
+                return
 
             if msg.Action == "*" and operate == "stop_stream":
                 from .drivers import registry as drv_registry
                 drv_registry.stop_all_streams()
                 self._active_streams.clear()
+                self._log_forwarder.clear()
                 logger.info(i18n.translate("client.stream_stopped", action="all", stream_id="all", sender=msg.From or "server"))
                 return
 
@@ -91,23 +147,22 @@ class Client(ws.Connector):
             # 处理 stop_stream：移除回调并通知驱动
             if operate == "stop_stream":
                 from .drivers import registry as drv_registry
-                frm = msg.From
                 stream_id = data.get("stream_id")
-                if frm:
+                if _skey:
                     streams = self._active_streams.get(msg.Action, {})
                     if stream_id:
                         for f, sids in list(streams.items()):
                             if stream_id in sids:
-                                sids.remove(stream_id)
+                                del sids[stream_id]
                                 if not sids:
                                     streams.pop(f, None)
                                 break
                         drv_registry.stop_stream(msg.Action, stream_id)
                     else:
-                        sids = streams.pop(frm, [])
+                        sids = streams.pop(_skey, {})
                         for sid in sids:
                             drv_registry.stop_stream(msg.Action, sid)
-                    logger.info(i18n.translate("client.stream_stopped", action=msg.Action, stream_id=stream_id or "all", sender=frm))
+                    logger.info(i18n.translate("client.stream_stopped", action=msg.Action, stream_id=stream_id or "all", sender=_skey))
                 else:
                     drv_registry.stop_all_streams(msg.Action)
                     self._active_streams.pop(msg.Action, None)
@@ -132,10 +187,9 @@ class Client(ws.Connector):
                     from .drivers import registry as drv_registry
                     if msg.Action not in self._active_streams:
                         self._active_streams[msg.Action] = {}
-                    frm = msg.From or ""
-                    if frm not in self._active_streams[msg.Action]:
-                        self._active_streams[msg.Action][frm] = []
-                    self._active_streams[msg.Action][frm].append(stream_id)
+                    if _skey not in self._active_streams[msg.Action]:
+                        self._active_streams[msg.Action][_skey] = {}
+                    self._active_streams[msg.Action][_skey][stream_id] = reply
                     original_msg = msg
                     def on_frame(frame_msg):
                         asyncio.run_coroutine_threadsafe(
@@ -211,6 +265,43 @@ class Client(ws.Connector):
         except Exception as e:
             logger.error(i18n.translate("client.stream_forward_error", error=e), exc_info=True)
 
+    async def _handle_log_stream(self, msg, reply, data: dict, operate) -> None:
+        """内置日志流：action=log，主进程直接订阅 SmtPlay logger，本地/远程 reply 通道通用。"""
+        rid = msg.RequestID
+        if operate == "start_stream":
+            level = data.get("level", "INFO")
+            name = data.get("name")
+            tail = int(data.get("tail", 0) or 0)
+            result = self._log_forwarder.subscribe(
+                stream_id=rid, reply=reply, to=msg.From, request_id=rid,
+                level=level, name=name, tail=tail,
+            )
+            resp = self.Message(
+                Type="response", Action=LOG_ACTION, To=msg.From,
+                RequestID=rid, Data=result,
+            )
+            await reply.send_json(resp.to_json())
+            logger.info(i18n.translate("client.log_stream_started", to=msg.From or "local", level=result.get("level")))
+            return
+
+        if operate == "stop_stream":
+            sid = data.get("stream_id") or rid
+            self._log_forwarder.unsubscribe(reply, msg.From, sid)
+            logger.info(i18n.translate("client.log_stream_stopped", stream_id=sid, sender=msg.From or "local"))
+            return
+
+        await reply.error(
+            i18n.translate("client.log_unsupported_operate", operate=operate),
+            To=msg.From, RequestID=rid,
+        )
+
+    async def close(self):
+        if getattr(self, "_keepalive_task", None) and not self._keepalive_task.done():
+            self._keepalive_task.cancel()
+        self._log_forwarder.clear()
+        self._log_forwarder.unbind_loop(self._loop)
+        await super().close()
+
     async def start_stream(self, to: str, params: dict):
         await self.send(self.Message(
             Type="command",
@@ -225,7 +316,67 @@ class Client(ws.Connector):
 
         drv_registry.stop_all_streams()
         self._active_streams.clear()
+        self._log_forwarder.unsubscribe_by_reply(self._server_reply)
         logger.debug(i18n.translate("client.all_streams_stopped"))
+
+    async def _keepalive_loop(self):
+        """每 _KEEPALIVE_INTERVAL 秒枚举所有活动流，各发一条 ping(RequestID=stream_id)探对端。
+
+        - 远程流(经服务端)：ping 走 _ServerReply。对端"静默离开"(连接在、键已删)时，
+          服务端弹回带 rid 的 "session not found"，由 main() 的 _stop_stream_by_rid 命中停流。
+        - 发送本身失败 = 通道已断(本地网页关闭，或本机↔服务端断线)：记一笔后就地精确停这条流。
+        """
+        while True:
+            try:
+                await asyncio.sleep(self._KEEPALIVE_INTERVAL)
+                if getattr(self, "conn", None) is None:
+                    continue
+                for reply, to, stream_id in self._keepalive_targets():
+                    if not to:
+                        continue
+                    # 本地网页流(reply=_WebReply)的帧经桥直连浏览器、不经服务端；其记账地址
+                    # (local:{conn})服务端从未注册，拿它 System.ping 只会走服务端连接并回
+                    # "session not found"。存活由 LocalBridge 的连接关闭检测(_drop_conn)负责，
+                    # 故只对经服务端的流(reply=_ServerReply)探活。
+                    if reply is not self._server_reply:
+                        continue
+                    try:
+                        await self.System.ping(To=to, RequestID=stream_id)
+                    except Exception as e:
+                        logger.debug(i18n.translate("client.keepalive_send_failed",
+                                                    stream_id=stream_id, error=e))
+                        self._stop_stream_by_target(reply, to, stream_id)
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.debug(i18n.translate("client.keepalive_tick_failed", error=e))
+
+    def _keepalive_targets(self):
+        """产出所有在发流的保活目标 (reply, to, stream_id)：日志订阅 + 驱动流。"""
+        yield from self._log_forwarder.keepalive_targets()
+        for action, streams in list(self._active_streams.items()):
+            for frm, sids in list(streams.items()):
+                for stream_id, reply in list(sids.items()):
+                    yield reply, frm, stream_id
+
+    def _stop_stream_by_target(self, reply, to, stream_id):
+        """已知通道时精确停一条流(本地网页断开 / 本机↔服务端断线触发)：先试日志订阅，再试驱动流。"""
+        if self._log_forwarder.unsubscribe_by_stream(reply, stream_id):
+            logger.info(i18n.translate("client.stream_stopped",
+                                       action=LOG_ACTION, stream_id=stream_id, sender="keepalive"))
+            return
+        from .drivers import registry as drv_registry
+        for action, streams in list(self._active_streams.items()):
+            sids = streams.get(to)
+            if sids and sids.get(stream_id) is reply:
+                del sids[stream_id]
+                if not sids:
+                    streams.pop(to, None)
+                drv_registry.stop_stream(action, stream_id)
+                logger.info(i18n.translate("client.stream_stopped",
+                                           action=action, stream_id=stream_id, sender="keepalive"))
+                return
 
 
 def _build_client_config():
@@ -256,6 +407,10 @@ def main():
         packages_dir = sys.argv[3] if len(sys.argv) > 3 else None
         run_driver(driver_file, packages_dir)
         return
+
+    # 尽早安装全局分级日志缓冲(loop 稍后由 Client 绑定)，使登录前日志也可回放
+    from .ws.logstream import get_log_forwarder
+    get_log_forwarder()
 
     if "--no-ui" not in sys.argv:
         try:
