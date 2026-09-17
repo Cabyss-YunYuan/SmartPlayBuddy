@@ -9,7 +9,7 @@ from PyQt6.QtGui import QIcon
 import PyQt6.QtWebEngineWidgets  # noqa: F401 — 必须在 QApplication 之前导入
 from ..config import Config
 from .main import MainWindow
-
+from .capsule import FloatingBall
 
 if sys.platform == "win32":
     appid = f"cabyss.smtplaybuddy.{Config.version}"
@@ -17,11 +17,14 @@ if sys.platform == "win32":
 
 
 window: MainWindow = None
+floating_ball: FloatingBall = None
 
 def get_app():
-    global window
+    global window, floating_ball
     app = QApplication(sys.argv)
     window = MainWindow(Config)
     icon_path = Path(__file__).parent / "resources" / "icons" / "logo.ico"
     app.setWindowIcon(QIcon(str(icon_path)))
+    floating_ball = FloatingBall(log_window=window)
+    floating_ball.show()
     return app

@@ -2,7 +2,7 @@
 登录对话框：内嵌 QWebEngineView 完成 OAuth 登录，
 通过拦截 QWebEngineCookieStore 的 cookie 写入来判断登录成功。
 """
-from PyQt6.QtWidgets import QDialog, QVBoxLayout
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QApplication
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
 from PyQt6.QtCore import QUrl, QTimer
@@ -35,7 +35,7 @@ class LoginDialog(QDialog):
         self._found_refresh = ""
 
         self.setWindowTitle(i18n.translate("ui.login.title"))
-        self.resize(*LOGIN_WINDOW_SIZE)
+        self._apply_screen_geometry(*LOGIN_WINDOW_SIZE)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -51,6 +51,18 @@ class LoginDialog(QDialog):
         self._timeout_timer.timeout.connect(self._on_timeout)
 
         self._start_login()
+
+    def _apply_screen_geometry(self, default_width, default_height):
+        """按当前屏幕可用区域将窗口缩小为默认尺寸的 2/3 并在可用区域内水平、垂直居中；
+        尺寸超出可用区域时裁剪到可用区域内。"""
+        screen = self.screen() or QApplication.primaryScreen()
+        avail = screen.availableGeometry()
+        width = min(int(default_width * 2 / 3), avail.width())
+        height = min(int(default_height * 2 / 3), avail.height())
+        self.resize(width, height)
+        x = avail.left() + (avail.width() - width) // 2
+        y = avail.top() + (avail.height() - height) // 2
+        self.move(x, y)
 
     def _start_login(self):
         try:

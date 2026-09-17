@@ -6,10 +6,12 @@ keyring 为唯一令牌源，cookie 仅作为传输层。
 """
 import time
 import asyncio
-from PyQt6.QtWidgets import QMainWindow
+from pathlib import Path
+from PyQt6.QtWidgets import QMainWindow, QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage, QWebEngineScript
-from PyQt6.QtCore import QUrl, QTimer, QDateTime, pyqtSignal
+from PyQt6.QtCore import QUrl, QTimer, QDateTime, pyqtSignal, Qt
+from PyQt6.QtGui import QIcon
 from PyQt6.QtNetwork import QNetworkCookie
 from .config import Config
 from ..user.login import (
@@ -35,8 +37,9 @@ class MainWindow(QMainWindow):
 
         self._web_view = QWebEngineView(self)
         self._web_view.setPage(QWebEnginePage(self._profile, self._web_view))
+        self._web_view.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
         self.setCentralWidget(self._web_view)
-        self.resize(1280, 800)
+        self._apply_screen_geometry(1280, 800)
 
         self._access_token = ""
         self._refresh_token = ""
@@ -51,6 +54,75 @@ class MainWindow(QMainWindow):
         self._logout_timer.setInterval(2000)
         self._logout_timer.timeout.connect(self._check_logout)
         self._logout_timer.start()
+
+        self._force_quit = False
+        self._init_tray()
+
+    def _apply_screen_geometry(self, default_width, default_height):
+        """按当前屏幕可用区域将窗口缩小为默认尺寸的 2/3 并在可用区域内水平、垂直居中；
+        尺寸超出可用区域时裁剪到可用区域内。"""
+        screen = self.screen() or QApplication.primaryScreen()
+        avail = screen.availableGeometry()
+        width = min(int(default_width * 2 / 3), avail.width())
+        height = min(int(default_height * 2 / 3), avail.height())
+        self.resize(width, height)
+        x = avail.left() + (avail.width() - width) // 2
+        y = avail.top() + (avail.height() - height) // 2
+        self.move(x, y)
+
+    def _load_tray_icon(self):
+        """加载托盘图标：优先使用程序现有图标，回退到应用窗口图标。"""
+        icon = QIcon(str(Path(__file__).parent / "resources" / "icons" / "logo.ico"))
+        if icon.isNull():
+            app = QApplication.instance()
+            if app is not None:
+                icon = app.windowIcon()
+        return icon
+
+    def _init_tray(self):
+        """创建系统托盘图标与右键菜单（显示窗口 / 退出程序）。"""
+        self._tray_icon = QSystemTrayIcon(self._load_tray_icon(), self)
+        self._tray_icon.setToolTip(self.windowTitle())
+
+        self._tray_menu = QMenu()
+        show_action = self._tray_menu.addAction("显示窗口")
+        show_action.triggered.connect(self._show_from_tray)
+        quit_action = self._tray_menu.addAction("退出程序")
+        quit_action.triggered.connect(self._quit_from_tray)
+        self._tray_icon.setContextMenu(self._tray_menu)
+
+        self._tray_icon.show()
+
+    def _show_from_tray(self):
+        """从托盘重新显示并激活主窗口。"""
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _quit_from_tray(self):
+        """真正退出程序：关闭悬浮球与主窗口，并强制结束事件循环确保进程退出。"""
+        # 先置位，确保主窗口 closeEvent 放行关闭而非再次隐藏到托盘
+        self._force_quit = True
+        # 同步关闭悬浮球：Qt.Tool 窗口会残留并可能阻止退出（None 安全）
+        from . import floating_ball
+        if floating_ball is not None:
+            floating_ball.close()
+        # 移除托盘图标
+        self._tray_icon.hide()
+        # 执行主窗口清理：停止登出轮询、释放 WebEngine page/profile（幂等，避免重复释放）
+        self.on_close()
+        # 关闭主窗口
+        self.close()
+        # qasync 下 lastWindowClosed 可能不触发，显式退出 Qt 事件循环，确保进程真正结束
+        QApplication.instance().quit()
+
+    def closeEvent(self, event):
+        """拦截关闭：默认隐藏到托盘，仅在托盘选择退出时真正关闭。"""
+        if not self._force_quit:
+            event.ignore()
+            self.hide()
+            return
+        event.accept()
 
     @property
     def web_url(self) -> str:
@@ -241,6 +313,9 @@ class MainWindow(QMainWindow):
         )
 
     def on_close(self):
+        if getattr(self, "_on_close_done", False):
+            return
+        self._on_close_done = True
         self._logout_timer.stop()
         page = self._web_view.page()
         self._web_view.setPage(None)
