@@ -70,25 +70,40 @@ class Client(ws.Connector):
         #: 我们发出的 request 的 RID 集合，用于校验 response 是否合法
         self._outgoing_request_rids: set[str] = set()
 
+    @staticmethod
+    def system_dispatch(func):
+        """装饰器：系统消息处理。ping/pong 就地回复，不进入业务逻辑。"""
+        async def wrapper(self, msg):
+            if msg.Type == "system":
+                from .ws import logic as ws_logic
+                ws_logic.system(self, msg)
+                return
+            return await func(self, msg)
+        return wrapper
+
+    @staticmethod
+    def require_auth(func):
+        """装饰器：授权校验。未通过校验的消息不进入业务逻辑。"""
+        async def wrapper(self, msg):
+            if self.bridge is not None:
+                self.bridge.broadcast_to_web(msg)
+            if not await self._check_auth(msg):
+                logger.debug(i18n.translate("permit.unauthorized_blocked",
+                                            type=msg.Type, rid=msg.RequestID, from_addr=msg.From))
+                if msg.Type not in ("response", "stream", "system", "session"):
+                    await self.Error.error("unauthorized", To=msg.From, RequestID=msg.RequestID)
+                return
+            return await func(self, msg)
+        return wrapper
+
+    @require_auth
+    @ws.Connector.system_dispatch
+    @ws.Connector.session_dispatch
     async def main(self, msg) -> None:
         """处理服务端下发的消息。
-        回程所有消息无条件透传(镜像)回内嵌窗口，无论本地是否处理过；
-        command 额外就地执行(本机被远端控制的被控角色)，结果回给服务端。
+        command 就地执行(本机被远端控制的被控角色)，结果回给服务端。
         """
-        if self.bridge is not None:
-            self.bridge.broadcast_to_web(msg)
-
-        if not await self._check_auth(msg):
-            logger.debug(i18n.translate("permit.unauthorized_blocked",
-                                        type=msg.Type, rid=msg.RequestID, from_addr=msg.From))
-            if msg.Type not in ("response", "stream", "system", "session"):
-                await self.Error.error("unauthorized", To=msg.From, RequestID=msg.RequestID)
-            return
-
-        if msg.Type == "system":
-            from .ws import logic as ws_logic
-            ws_logic.system(self, msg)
-        elif msg.Type == "command":
+        if msg.Type == "command":
             await self._execute_command(msg, self._server_reply)
         elif msg.Type == "request":
             await self._handle_auth_request(msg)
@@ -169,7 +184,7 @@ class Client(ws.Connector):
         data = msg.Data if isinstance(msg.Data, dict) else {}
         operate = data.get("operate")
 
-        if operate != "request_auth":
+        if operate != "request_permit":
             await self.Error.error(
                 i18n.translate("permit.unsupported_operate", operate=operate),
                 To=msg.From, RequestID=msg.RequestID,
@@ -187,7 +202,6 @@ class Client(ws.Connector):
         self._pending_auth = True
         try:
             description = data.get("description", "")
-            drivers = data.get("drivers", [])
 
             approved = await self._prompt_user(msg.From, description)
 
@@ -195,7 +209,6 @@ class Client(ws.Connector):
                 self._passes[msg.RequestID] = {
                     "from": msg.From,
                     "description": description,
-                    "drivers": drivers,
                 }
                 await self._send_auth_response(msg, "approved")
                 logger.info(i18n.translate("permit.request_approved", request_id=msg.RequestID))
@@ -230,12 +243,12 @@ class Client(ws.Connector):
         resp_data = {"status": status, "request_id": original_msg.RequestID, **extra}
         resp = self.Message(
             Type="response",
-            Action="auth",
+            Action="permit",
             To=original_msg.From,
             RequestID=original_msg.RequestID,
             Data=resp_data,
         )
-        await self.send(resp.to_json())
+        await self.send(resp)
 
     def _stop_stream_by_rid(self, rid) -> bool:
         """服务端流路由失败时，按 rid(=stream_id) 定向停这一条流；返回是否命中并停掉。
@@ -292,7 +305,7 @@ class Client(ws.Connector):
             if msg.Action not in drivers:
                 resp = self.Message(Type="error", Action=msg.Action, To=msg.From, RequestID=msg.RequestID,
                                        Data=i18n.translate("driver.not_found", driver=msg.Action), )
-                await reply.send_json(resp.to_json())
+                await reply.send_json(resp)
                 logger.warning(i18n.translate("client.key_error", error=resp))
                 return
 
@@ -429,10 +442,13 @@ class Client(ws.Connector):
                 level=level, name=name, tail=tail,
             )
             resp = self.Message(
-                Type="response", Action=LOG_ACTION, To=msg.From,
-                RequestID=rid, Data=result,
+                Type="response",
+                Action=LOG_ACTION,
+                To=msg.From,
+                RequestID=rid,
+                Data=result,
             )
-            await reply.send_json(resp.to_json())
+            await reply.send_json(resp)
             logger.debug(i18n.translate("client.log_stream_started", to=msg.From or "local", level=result.get("level")))
             return
 
@@ -464,7 +480,7 @@ class Client(ws.Connector):
             Action="screen",
             To=to,
             Data={**params, "operate": "start_stream"},
-        ).to_json())
+        ))
 
     def on_close(self):
         from .drivers import registry as drv_registry

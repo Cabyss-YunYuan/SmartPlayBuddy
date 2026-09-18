@@ -72,9 +72,12 @@ class Mod(ws.Connector):
         """
         Handle received messages. Called for every message.
 
+        Note: system and session messages are handled by framework decorators
+        before reaching main(). You will not receive them here.
+
         Args:
             msg: Message object with the following fields:
-                - Type: Message type (command/response/stream/error/system)
+                - Type: Message type (command/response/stream/error/request/event/system/session)
                 - Action: Operation action
                 - From: Sender identifier
                 - To: Target identifier
@@ -100,7 +103,7 @@ from smartplaybuddy.mod import Mod
 class MyMod(Mod):
     async def main(self, msg) -> None:
         # Send a keyboard command to a specific Client
-        await self.conn.send(self.Message(
+        await self.send(self.Message(
             Type="command",
             Action="keyboard",
             To="client:123:my-pc",
@@ -108,13 +111,59 @@ class MyMod(Mod):
                 "operate": "tap",
                 "key": "a",
             },
-        ).to_json())
+        ))
 
         # Send an error response
         await self.Error.error("Processing failed", To=msg.From, RequestID=msg.RequestID)
 ```
 
+> **Tip**: `send()` accepts `Message` objects directly.
+
 > **Tip**: `msg.From` is already in the full routing identifier format and can be used directly in the `To` field to reply.
+
+### Cross-UID Authorization (`permit`)
+
+When your Mod needs to send commands to a Client of a **different user** (cross-UID), you must first obtain authorization. The `permit()` context manager handles the full authorization lifecycle automatically:
+
+```python
+from smartplaybuddy.mod import Mod
+import asyncio
+
+TARGET = "client:123:my-pc"
+
+
+class MyMod(Mod):
+    async def main(self, msg) -> None:
+        pass
+
+
+async def run():
+    mod = MyMod(url="wss://smtplay.cabyss.cn/ws",
+                status={"device": {"type": "mod", "deviceName": "my-mod"}})
+    await mod.wait_ready()  # Wait for connection to establish
+
+    # Request authorization → wait for approval → activate event lock
+    async with mod.permit(TARGET, "Keyboard test") as rid:
+        # Send commands with the authorization RID
+        await mod.send(mod.Message(
+            Type="command", Action="keyboard", To=TARGET, RequestID=rid,
+            Data={"operate": "tap", "key": "a"},
+        ))
+
+    # Exiting async with automatically releases the event lock
+```
+
+> **Note**: Use `await mod.wait_ready()` to wait for the connection to be fully established (WebSocket handshake + claim completed). Do **not** use `await mod.connection` — it wraps the infinite reconnection loop and will block forever.
+
+**How `permit()` works:**
+
+1. Sends a `request/permit` to the target Client
+2. The target user sees an authorization prompt and approves/rejects
+3. On approval, sends an `event/activate` to lock the authorization
+4. The returned `rid` (Request ID) is the authorization credential — all commands must carry it
+5. When the `async with` block exits (normally or due to exception), automatically sends `event/release` to unlock
+
+> **Note**: Commands to the **same user** (same UID) do not require `permit()`. Only cross-UID operations need authorization.
 
 ### System Functions
 
@@ -124,6 +173,8 @@ class MyMod(Mod):
         # Heartbeat check
         await self.System.ping()
 ```
+
+> **Note**: `ping`/`pong` heartbeat is handled automatically by the framework decorator. You typically don't need to call it manually.
 
 ### Connection Lifecycle
 
@@ -139,7 +190,7 @@ class MyMod(Mod):
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `Type` | str | Message type: `command` / `response` / `stream` / `error` / `system` |
+| `Type` | str | Message type: `command` / `response` / `stream` / `error` / `request` / `event` / `system` / `session` |
 | `Action` | str | Operation action |
 | `From` | str \| None | Sender identifier |
 | `To` | str \| None | Target identifier |
@@ -148,6 +199,8 @@ class MyMod(Mod):
 | `Timestamp` | int | Millisecond timestamp |
 | `BinaryData` | bytes \| None | Binary data (auto-filled after pairing with text frame) |
 | `Binary` | bool | Whether binary data is included |
+
+> **Note**: `system` and `session` type messages are intercepted by framework decorators (`system_dispatch`, `session_dispatch`) and do not reach `main()`.
 
 ## Complete Example: Message Forwarding Mod
 
@@ -162,12 +215,12 @@ class ForwardMod(Mod):
         if msg.Type == "command" and msg.Action == "keyboard":
             # msg.From is in "client:123:A" format, can be used directly for replies
             # Forward to target device "client:123:B"
-            await self.conn.send(self.Message(
+            await self.send(self.Message(
                 Type="command",
                 Action="keyboard",
                 To="client:123:B",
                 Data=msg.Data,
-            ).to_json())
+            ))
 
     def on_close(self):
         pass
@@ -185,6 +238,7 @@ if __name__ == "__main__":
 - The `main()` method is asynchronous and supports `await` operations
 - The `Data` field in messages is auto-decoded (Base64 → Dict | Str | None) and ready to use
 - For sending binary data, refer to the dual-frame protocol in [Data Format](../DataFormat.md)
+- `system` and `session` messages are handled by framework decorators before reaching `main()`
 
 ## Console Access
 See [ModConsoleAccess](ModConsoleAccess.md) for details.

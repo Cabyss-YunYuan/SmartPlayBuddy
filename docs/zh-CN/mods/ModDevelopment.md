@@ -72,9 +72,12 @@ class Mod(ws.Connector):
         """
         处理接收到的消息。每条消息都会调用此方法。
 
+        注意：system 和 session 类型消息由框架装饰器在到达 main() 前处理完毕，
+        你不会在 main() 中收到它们。
+
         Args:
             msg: Message 对象，包含以下字段：
-                - Type: 消息类型 (command/response/stream/error/system)
+                - Type: 消息类型 (command/response/stream/error/request/event/system/session)
                 - Action: 操作动作
                 - From: 发送方标识
                 - To: 目标方标识
@@ -100,7 +103,7 @@ from smartplaybuddy.mod import Mod
 class MyMod(Mod):
     async def main(self, msg) -> None:
         # 向指定 Client 发送键盘指令
-        await self.conn.send(self.Message(
+        await self.send(self.Message(
             Type="command",
             Action="keyboard",
             To="client:123:my-pc",
@@ -108,13 +111,59 @@ class MyMod(Mod):
                 "operate": "tap",
                 "key": "a",
             },
-        ).to_json())
+        ))
 
         # 发送错误响应
         await self.Error.error("处理失败", To=msg.From, RequestID=msg.RequestID)
 ```
 
+> **提示**：`send()` 直接接受 `Message` 对象。
+
 > **提示**：`msg.From` 已经是完整的路由标识格式，可直接用于 `To` 字段回复消息。
+
+### 跨用户授权（`permit`）
+
+当你的 Mod 需要向**其他用户**的 Client 发送指令（跨 UID）时，必须先获得授权。`permit()` 上下文管理器自动处理完整的授权生命周期：
+
+```python
+from smartplaybuddy.mod import Mod
+import asyncio
+
+TARGET = "client:123:my-pc"
+
+
+class MyMod(Mod):
+    async def main(self, msg) -> None:
+        pass
+
+
+async def run():
+    mod = MyMod(url="wss://smtplay.cabyss.cn/ws",
+                status={"device": {"type": "mod", "deviceName": "my-mod"}})
+    await mod.wait_ready()  # 等待连接建立
+
+    # 请求授权 → 等待审批 → 激活事件锁
+    async with mod.permit(TARGET, "键盘测试") as rid:
+        # 携带授权 RID 发送指令
+        await mod.send(mod.Message(
+            Type="command", Action="keyboard", To=TARGET, RequestID=rid,
+            Data={"operate": "tap", "key": "a"},
+        ))
+
+    # 退出 async with 自动释放事件锁
+```
+
+> **注意**：使用 `await mod.wait_ready()` 等待连接完全建立（WebSocket 握手 + claim 完成）。不要使用 `await mod.connection`——它包装了无限重连循环，`await` 会永远阻塞。
+
+**`permit()` 的工作流程：**
+
+1. 向目标 Client 发送 `request/permit` 请求
+2. 目标用户看到授权提示，选择批准或拒绝
+3. 批准后，发送 `event/activate` 激活事件锁
+4. 返回的 `rid`（Request ID）即为授权凭证——后续所有指令都必须携带它
+5. 当 `async with` 块退出（正常退出或异常），自动发送 `event/release` 释放锁
+
+> **注意**：向**同用户**（相同 UID）发送指令不需要 `permit()`，仅跨 UID 操作需要授权。
 
 ### 系统功能
 
@@ -124,6 +173,8 @@ class MyMod(Mod):
         # 心跳检测
         await self.System.ping()
 ```
+
+> **注意**：`ping`/`pong` 心跳由框架装饰器自动处理，通常无需手动调用。
 
 ### 连接生命周期
 
@@ -139,7 +190,7 @@ class MyMod(Mod):
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `Type` | str | 消息类型：`command` / `response` / `stream` / `error` / `system` |
+| `Type` | str | 消息类型：`command` / `response` / `stream` / `error` / `request` / `event` / `system` / `session` |
 | `Action` | str | 操作动作 |
 | `From` | str \| None | 发送方标识 |
 | `To` | str \| None | 目标方标识 |
@@ -148,6 +199,8 @@ class MyMod(Mod):
 | `Timestamp` | int | 毫秒级时间戳 |
 | `BinaryData` | bytes \| None | 二进制数据（与 text 帧配对后自动填充） |
 | `Binary` | bool | 是否包含二进制数据 |
+
+> **注意**：`system` 和 `session` 类型消息由框架装饰器（`system_dispatch`、`session_dispatch`）拦截处理，不会到达 `main()`。
 
 ## 完整示例：消息转发 Mod
 
@@ -162,12 +215,12 @@ class ForwardMod(Mod):
         if msg.Type == "command" and msg.Action == "keyboard":
             # msg.From 格式为 "client:123:A"，可直接用于回复
             # 转发到目标设备 "client:123:B"
-            await self.conn.send(self.Message(
+            await self.send(self.Message(
                 Type="command",
                 Action="keyboard",
                 To="client:123:B",
                 Data=msg.Data,
-            ).to_json())
+            ))
 
     def on_close(self):
         pass
@@ -185,6 +238,7 @@ if __name__ == "__main__":
 - `main()` 方法是异步的，支持 `await` 操作
 - 消息中的 `Data` 字段已经过自动解码（Base64 → Dict | Str | None），可直接使用
 - 如需发送二进制数据，参考 [数据格式](../DataFormat.md) 中的双帧协议
+- `system` 和 `session` 消息由框架装饰器在到达 `main()` 前处理完毕
 
 ## 控制台接入
 详见[Mod 控制台接入](ModConsoleAccess.md)。

@@ -72,12 +72,11 @@ class _WebReply:
     def __init__(self, connection):
         self._conn = connection
         self._lock = asyncio.Lock()
-        #: 该网页连接的本地记账地址 local:{conn}：连接建立即分配、生命周期内稳定。
-        #: 网页在桥模式下不 claim、无服务端身份，此地址仅用作就地执行时的 msg.From
-        #: (流记账/回流键)，永不发往服务端。
         self.address: str = f"{INTERNAL_ADDRESS_PREFIX}:{id(self):x}"
 
-    async def send_json(self, payload: str):
+    async def send_json(self, payload):
+        if isinstance(payload, message.Message):
+            payload = payload.to_json()
         async with self._lock:
             await self._conn.send(payload)
 
@@ -297,7 +296,6 @@ class LocalBridge:
             return
 
         operate = msg.Data.get("operate") if isinstance(msg.Data, dict) else None
-        payload = msg.to_json()  # to_json 会在缺失时补全并回填 RequestID
         rid = msg.RequestID
 
         # 客户端尚未连上服务端(启动竞态 / 断线重连中)：无法透传。明确回执网页稍后重试，
@@ -323,7 +321,7 @@ class LocalBridge:
             if msg.BinaryData is not None:
                 await self._client.send_pair(msg, msg.BinaryData)
             else:
-                await self._client.send(payload)
+                await self._client.send(msg)
         except Exception as e:
             self._streams.pop(rid, None)
             logger.error(i18n.translate("bridge.forward_failed", error=e))
@@ -346,7 +344,7 @@ class LocalBridge:
                 out.Binary = True
                 await reply.send_pair(out, msg.BinaryData)
             else:
-                await reply.send_json(msg.to_json())
+                await reply.send_json(msg)
         except Exception as e:
             logger.error(i18n.translate("bridge.relay_failed", error=e))
 
@@ -369,7 +367,7 @@ class LocalBridge:
                 To=st.to,
                 Data={"operate": "stop_stream", "stream_id": stream_id},
             )
-            await self._client.send(stop.to_json())
+            await self._client.send(stop)
             logger.info(i18n.translate("bridge.orphan_stream_stop", stream_id=stream_id, to=st.to))
         except Exception as e:
             logger.debug(i18n.translate("bridge.orphan_stream_stop_failed", error=e))

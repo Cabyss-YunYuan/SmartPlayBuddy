@@ -64,6 +64,7 @@ class Connector(ABC):
         # text(binary=true) 与其后的 binary 帧必须成对写出：
         # 服务端 ReadLoop 用 lastText* 缓存做配对，中间插入任何其他文本帧都会错配。
         self._send_lock = asyncio.Lock()
+        self._ready = asyncio.Event()
         try:
             self.connection = asyncio.create_task(self.run())
         except Exception as e:
@@ -80,7 +81,24 @@ class Connector(ABC):
         """服务端连接是否已建立、可用于转发。connect() 前与断开退避期间为 False。"""
         return self.conn is not None
 
-    async def send(self, payload: str | bytes):
+    async def wait_ready(self, timeout: float | None = None) -> bool:
+        """等待连接建立并完成 claim，可用于发送消息。
+
+        Args:
+            timeout: 最大等待秒数。None 表示无限等待。
+
+        Returns:
+            True 表示已就绪，False 表示超时。
+        """
+        try:
+            await asyncio.wait_for(self._ready.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
+    async def send(self, payload: "message.Message | bytes | str"):
+        if isinstance(payload, message.Message):
+            payload = payload.to_json()
         async with self._send_lock:
             await self.conn.send(payload)
 
@@ -173,6 +191,8 @@ class Connector(ABC):
                 additional_headers=config.get("headers"),
                 max_size=None,
                 compression=None,
+                ping_interval=None,
+                ping_timeout=None,
             )
             if self.reconnect_attempts:
                 logger.info(i18n.translate("connector.reconnected", attempt=self.reconnect_attempts))
@@ -189,6 +209,7 @@ class Connector(ABC):
             self._claim_pending = True
             await self.Session.claims(config.get("status"))
             await self.Session.query_status()
+            self._ready.set()
 
             await self.loop()
         except asyncio.CancelledError:
@@ -214,6 +235,7 @@ class Connector(ABC):
             logger.error(i18n.translate("connector.connect_failed", error=e), exc_info=True)
         finally:
             self._claim_pending = False
+            self._ready.clear()
             self.on_close()
             self.conn = None
 
@@ -336,16 +358,6 @@ class Connector(ABC):
                 if msg.From:
                     self._claim_pending = False
 
-                # 服务端权威 session 查询响应：以服务端返回为准更新 session_info 并触发钩子。
-                # 不 continue——继续派发到 main()，由 main() 无条件镜像回内嵌网页：
-                # 网页在桥模式下经 client 中继发起自己的 status 查询，需靠此镜像拿到回执
-                # (网页按 requestId 认领，连接器自身查询的回执 requestId 不匹配会被网页忽略)。
-                if msg.Type == "session" and msg.Action == "status" and isinstance(msg.Data, dict):
-                    self._claim_pending = False
-                    self.session_info = msg.Data
-                    logger.debug(i18n.translate("connector.session_updated"))
-                    self._on_session_info_updated()
-
                 await self.main(msg)
             except websockets.exceptions.ConnectionClosed:
                 break
@@ -353,6 +365,30 @@ class Connector(ABC):
                 logger.error(i18n.translate("connector.loop_exception", error=e), exc_info=True)
                 break
         logger.debug(i18n.translate("connector.loop_exited"))
+
+    @staticmethod
+    def system_dispatch(func):
+        """装饰器：系统消息处理。ping/pong 就地回复，不进入业务逻辑。"""
+        async def wrapper(self, msg):
+            if msg.Type == "system":
+                from . import logic as ws_logic
+                ws_logic.system(self, msg)
+                return
+            return await func(self, msg)
+        return wrapper
+
+    @staticmethod
+    def session_dispatch(func):
+        """装饰器：session 消息处理。更新 session_info 并触发钩子，不进入业务逻辑。"""
+        async def wrapper(self, msg):
+            if msg.Type == "session" and msg.Action == "status" and isinstance(msg.Data, dict):
+                self._claim_pending = False
+                self.session_info = msg.Data
+                logger.debug(i18n.translate("connector.session_updated"))
+                self._on_session_info_updated()
+                return
+            return await func(self, msg)
+        return wrapper
 
     @abstractmethod
     async def main(self, msg: "Message") -> None:
@@ -367,7 +403,7 @@ class Connector(ABC):
 
 
     class SystemCls:
-        def __init__(self, conn: websockets.ClientConnection):
+        def __init__(self, conn):
             self.conn = conn
 
         async def ping(self, Data = None, To: str | None = None, RequestID: str | None = None):
@@ -375,7 +411,7 @@ class Connector(ABC):
 
 
     class SessionCls:
-        def __init__(self, conn: websockets.ClientConnection):
+        def __init__(self, conn):
             self.conn = conn
 
         async def claims(self, status: dict):
@@ -387,11 +423,10 @@ class Connector(ABC):
 
 
     class ErrorCls:
-        def __init__(self, conn: websockets.ClientConnection):
+        def __init__(self, conn):
             self.conn = conn
 
         async def error(self, data, To: str | None = None, RequestID: str | None = None):
             if not To:
-                # 无 to 的消息一般由服务端自行处理，本地无处可回，静默丢弃(不再告警刷屏)
                 return
             await self.conn.send(message.error.error(data, To=To, RequestID=RequestID))

@@ -12,14 +12,14 @@ All messages use a unified JSON structure:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| type | string | ✅ | Message type: `command` / `response` / `stream` / `error` / `system` / `event` / `query` |
+| type | string | ✅ | Message type: `command` / `response` / `stream` / `error` / `request` / `event` / `system` / `session` |
 | action | string | ✅ | Operation action (e.g., `keyboard`, `mouse`, `screen`) |
 | from | string | ☐ | Sender identifier (**auto-filled by server**, format: `{type}:{userId}:{deviceName}`) |
 | to | string | ☐ | Target identifier (**key routing field**, format: `{type}:{userId}:{deviceName}`) |
 | requestId | string | ☐ | Unique request ID (snowflake algorithm), returned as-is in responses |
 | data | string | ☐ | Business data, Base64-encoded JSON string |
 | binary | bool | ☐ | When `true`, indicates a binary frame follows |
-| timestamp | int64 | ✅ | Millisecond timestamp |
+| timestamp | int64 | ☐ | Millisecond timestamp |
 
 ### Message Routing
 
@@ -27,15 +27,16 @@ The server routes messages based on the `to` field:
 
 1. When sending a message, the client sets `to` to the target device's full identifier (e.g., `client:123:my-pc`)
 2. The server auto-fills `from` with the sender's identifier (e.g., `mod:123:my-mod`)
-3. Before forwarding, the server clears the `to` field and pushes to the target connection
+3. If sending a message to a web client session, `to` should be filled with the complete identifier of the target device (e.g., `client:123:my-pc:session`).
 
-**Identifier Format**: `{deviceType}:{userId}:{deviceName}`
+**Identifier Format**: `{deviceType}:{userId}:{deviceName}:{session}`
 
 | Part | Description |
 |------|-------------|
 | `deviceType` | `client` (device side) or `mod` (logic side) |
 | `userId` | User ID (determined by JWT authentication) |
 | `deviceName` | Device name (specified during claim; auto-generated UUID if empty) |
+| `session` | Session identifier (optional) |
 
 > **Note**: Only one online connection is allowed per device name under the same user. When a new connection claims a device name that is already online, the server rejects the new connection.
 
@@ -63,7 +64,7 @@ Business commands sent from client to server, or operation commands from server 
 {
   "type": "command",
   "action": "keyboard",
-  "to": "device-abc",
+  "to": "client:123:my-pc",
   "requestId": "1234567890",
   "data": "eyJvcGVyYXRlIjogInRhcCIsICJrZXkiOiAiYSJ9",
   "timestamp": 1700000000000
@@ -123,12 +124,25 @@ Stream lifecycle:
   "timestamp": 1700000000002
 }
 ```
+
+### request — Request
+
+Request messages sent to another party that expect a response (e.g., authorization requests).
+
 ### event — Event
 
-Event messages reported by the client (e.g., device status changes), forwarded by the server.
-
-### query — Query
-
-Query requests sent from the client to the server or other clients.
+Event messages reported by the client (e.g., device status changes, authorization activation/release).
 
 ### system — System Message
+
+System-level protocol messages such as `ping`/`pong` for keepalive. Handled automatically by the framework decorator before reaching business logic.
+
+### session — Session Management
+
+Session management messages for device claim and status queries (e.g., `session/claim`, `session/status`). Handled automatically by the framework decorator.
+
+## Reserved Types
+
+| Type | Status | Description |
+|------|--------|-------------|
+| `query` | Reserved | Reserved for future query requests from client to server or other clients |

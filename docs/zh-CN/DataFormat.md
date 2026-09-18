@@ -12,14 +12,14 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| type | string | ✅ | 消息类型：`command` / `response` / `stream` / `error` / `system` / `event` / `query` |
+| type | string | ✅ | 消息类型：`command` / `response` / `stream` / `error` / `request` / `event` / `system` / `session` |
 | action | string | ✅ | 操作动作（如 `keyboard`、`mouse`、`screen`） |
 | from | string | ☐ | 发送方标识（**服务端自动填充**，格式：`{type}:{userId}:{deviceName}`） |
 | to | string | ☐ | 目标方标识（**路由关键字段**，格式：`{type}:{userId}:{deviceName}`） |
 | requestId | string | ☐ | 请求唯一 ID（雪花算法），响应时原样返回 |
 | data | string | ☐ | 业务数据，Base64 编码的 JSON 字符串 |
 | binary | bool | ☐ | 为 `true` 时表示后续有一个 binary 帧携带二进制数据 |
-| timestamp | int64 | ✅ | 毫秒级时间戳 |
+| timestamp | int64 | ☐ | 毫秒级时间戳 |
 
 ### 消息路由
 
@@ -27,15 +27,16 @@
 
 1. 客户端发送消息时，`to` 填写目标设备的完整标识（如 `client:123:my-pc`）
 2. 服务端自动填充 `from` 为发送方的标识（如 `mod:123:my-mod`）
-3. 转发前清空 `to` 字段，推送到目标连接
+3. 如果是发送消息到网页端会话时，`to` 填写目标设备的完整标识（如 `client:123:my-pc:session`）
 
-**标识格式**：`{deviceType}:{userId}:{deviceName}`
+**标识格式**：`{deviceType}:{userId}:{deviceName}:{session}`
 
 | 部分 | 说明 |
 |------|------|
 | `deviceType` | `client`（设备端）或 `mod`（逻辑端） |
 | `userId` | 用户 ID（由 JWT 认证确定） |
 | `deviceName` | 设备名称（claim 时指定，为空则服务端自动生成 UUID） |
+| `session` | 会话标识（可选） |
 
 > **注意**：同一用户下同名设备只允许一个在线连接。新连接 claim 同名设备时，若已有会话存在，服务端将拒绝新连接。
 
@@ -63,7 +64,7 @@
 {
   "type": "command",
   "action": "keyboard",
-  "to": "device-abc",
+  "to": "client:123:my-pc",
   "requestId": "1234567890",
   "data": "eyJvcGVyYXRlIjogInRhcCIsICJrZXkiOiAiYSJ9",
   "timestamp": 1700000000000
@@ -94,6 +95,7 @@
 ← text:  {"type":"response","action":"screen","requestId":"xxx","binary":true,"data":"eyJfX2JpbmFyeV9fIjp0cnVlLCJmb3JtYXQiOiJqcGVnIiwid2lkdGgiOjE5MjAsImhlaWdodCI6MTA4MH0="}
 ← binary: [JPEG 二进制数据]
 ```
+
 ### stream — 数据流
 
 流式传输消息，用于屏幕捕获等高频场景。结构与 `response` 类似，但 `type` 为 `stream`。
@@ -123,12 +125,24 @@
 }
 ```
 
+### request — 请求
+
+向对方发送的需要响应的请求消息（如授权请求）。
+
 ### event — 事件
 
-客户端上报的事件消息（如设备状态变更等），服务端负责转发。
-
-### query — 查询
-
-客户端向服务端或其他客户端发起的查询请求。
+客户端上报的事件消息（如设备状态变更、授权激活/释放等）。
 
 ### system — 系统消息
+
+系统级协议消息，如用于保活的 `ping`/`pong`。由框架装饰器自动处理，不进入业务逻辑。
+
+### session — 会话管理
+
+用于设备 claim 和状态查询的会话管理消息（如 `session/claim`、`session/status`）。由框架装饰器自动处理。
+
+## 保留类型
+
+| 类型 | 状态 | 说明 |
+|------|------|------|
+| `query` | 保留 | 预留给未来客户端向服务端或其他客户端发起的查询请求 |
