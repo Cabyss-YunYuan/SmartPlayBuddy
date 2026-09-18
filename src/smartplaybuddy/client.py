@@ -10,7 +10,6 @@ from .config import Config
 from .drivers import drivers
 from .ws.bridge import LocalBridge
 from .ws.logstream import get_log_forwarder, LOG_ACTION
-# from .ws import message
 import asyncio
 from typing import Dict
 
@@ -82,7 +81,7 @@ class Client(ws.Connector):
             if not self._stop_stream_by_rid(msg.RequestID):
                 with self._log_forwarder.suppressed():
                     logger.error(msg.Data)
-        elif msg.Type not in ("response", "stream", "system"):
+        elif msg.Type not in ("response", "stream", "system", "session"):
             await self.Error.error(i18n.translate("client.invalid_message_type"), To=msg.From, RequestID=msg.RequestID)
 
     def _stop_stream_by_rid(self, rid) -> bool:
@@ -94,7 +93,7 @@ class Client(ws.Connector):
         if not rid:
             return False
         if self._log_forwarder.unsubscribe_by_stream(self._server_reply, rid):
-            logger.info(i18n.translate("client.stream_stopped",
+            logger.debug(i18n.translate("client.stream_stopped",
                                        action=LOG_ACTION, stream_id=rid, sender="route-error"))
             return True
         from .drivers import registry as drv_registry
@@ -109,7 +108,7 @@ class Client(ws.Connector):
                     break
             if hit:
                 drv_registry.stop_stream(action, rid)
-                logger.info(i18n.translate("client.stream_stopped",
+                logger.debug(i18n.translate("client.stream_stopped",
                                            action=action, stream_id=rid, sender="route-error"))
                 return True
         return False
@@ -134,7 +133,7 @@ class Client(ws.Connector):
                 drv_registry.stop_all_streams()
                 self._active_streams.clear()
                 self._log_forwarder.clear()
-                logger.info(i18n.translate("client.stream_stopped", action="all", stream_id="all", sender=msg.From or "server"))
+                logger.debug(i18n.translate("client.stream_stopped", action="all", stream_id="all", sender=msg.From or "server"))
                 return
 
             if msg.Action not in drivers:
@@ -162,11 +161,11 @@ class Client(ws.Connector):
                         sids = streams.pop(_skey, {})
                         for sid in sids:
                             drv_registry.stop_stream(msg.Action, sid)
-                    logger.info(i18n.translate("client.stream_stopped", action=msg.Action, stream_id=stream_id or "all", sender=_skey))
+                    logger.debug(i18n.translate("client.stream_stopped", action=msg.Action, stream_id=stream_id or "all", sender=_skey))
                 else:
                     drv_registry.stop_all_streams(msg.Action)
                     self._active_streams.pop(msg.Action, None)
-                    logger.info(i18n.translate("client.stream_stopped", action=msg.Action, stream_id=stream_id or "all", sender="server"))
+                    logger.debug(i18n.translate("client.stream_stopped", action=msg.Action, stream_id=stream_id or "all", sender="server"))
                 return
 
             # 处理 start_stream：发送响应后注册流回调
@@ -281,13 +280,13 @@ class Client(ws.Connector):
                 RequestID=rid, Data=result,
             )
             await reply.send_json(resp.to_json())
-            logger.info(i18n.translate("client.log_stream_started", to=msg.From or "local", level=result.get("level")))
+            logger.debug(i18n.translate("client.log_stream_started", to=msg.From or "local", level=result.get("level")))
             return
 
         if operate == "stop_stream":
             sid = data.get("stream_id") or rid
             self._log_forwarder.unsubscribe(reply, msg.From, sid)
-            logger.info(i18n.translate("client.log_stream_stopped", stream_id=sid, sender=msg.From or "local"))
+            logger.debug(i18n.translate("client.log_stream_stopped", stream_id=sid, sender=msg.From or "local"))
             return
 
         await reply.error(
@@ -318,6 +317,22 @@ class Client(ws.Connector):
         self._active_streams.clear()
         self._log_forwarder.unsubscribe_by_reply(self._server_reply)
         logger.debug(i18n.translate("client.all_streams_stopped"))
+
+    def _on_session_info_updated(self):
+        """从服务端权威 session 提取 deviceName 更新本地设备名。
+
+        本地 Config.device_name 不完全可信(可能与服务端不同步)，一律以服务端
+        session/status 返回的 device.deviceName 为准；更新后 bridge 等模块的地址
+        解析自动使用权威设备名。"""
+        info = self.session_info or {}
+        device = info.get("device") if isinstance(info, dict) else None
+        if not isinstance(device, dict):
+            return
+        name = device.get("deviceName")
+        if name and name != self.device_name:
+            old = self.device_name
+            self.device_name = name
+            logger.debug(i18n.translate("client.device_name_updated", old=old, new=name))
 
     async def _keepalive_loop(self):
         """每 _KEEPALIVE_INTERVAL 秒枚举所有活动流，各发一条 ping(RequestID=stream_id)探对端。
@@ -363,7 +378,7 @@ class Client(ws.Connector):
     def _stop_stream_by_target(self, reply, to, stream_id):
         """已知通道时精确停一条流(本地网页断开 / 本机↔服务端断线触发)：先试日志订阅，再试驱动流。"""
         if self._log_forwarder.unsubscribe_by_stream(reply, stream_id):
-            logger.info(i18n.translate("client.stream_stopped",
+            logger.debug(i18n.translate("client.stream_stopped",
                                        action=LOG_ACTION, stream_id=stream_id, sender="keepalive"))
             return
         from .drivers import registry as drv_registry
@@ -374,7 +389,7 @@ class Client(ws.Connector):
                 if not sids:
                     streams.pop(to, None)
                 drv_registry.stop_stream(action, stream_id)
-                logger.info(i18n.translate("client.stream_stopped",
+                logger.debug(i18n.translate("client.stream_stopped",
                                            action=action, stream_id=stream_id, sender="keepalive"))
                 return
 

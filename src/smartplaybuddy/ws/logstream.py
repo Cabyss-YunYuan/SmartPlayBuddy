@@ -74,7 +74,6 @@ class LogForwarder(logging.Handler):
         self._subs: dict[str, _Subscriber] = {}
         self._tails: dict[int, deque] = {lv: deque(maxlen=tail_size) for lv in _LEVELS}
         self._root = _log.logger                # "SmtPlay" logger
-        self._self_prefix = logger.name         # "SmtPlay.LogStream"，跳过自身日志避免反馈放大
         self._suppress = False                  # 挂起实时转发(仍写缓冲)，用于切断 error→日志→帧 自激环
 
     @contextmanager
@@ -113,7 +112,7 @@ class LogForwarder(logging.Handler):
             sub.task = self._loop.create_task(self._pump(sub))
 
         replay = self._replay(min_level, name, tail)
-        logger.info(i18n.translate("logstream.subscribed",
+        logger.debug(i18n.translate("logstream.subscribed",
                                    stream_id=stream_id, level=logging.getLevelName(min_level), name=name or "-"))
         return {
             "stream_id": stream_id,
@@ -130,7 +129,7 @@ class LogForwarder(logging.Handler):
             return
         if sub.task and not sub.task.done():
             sub.task.cancel()
-        logger.info(i18n.translate("logstream.unsubscribed", stream_id=stream_id))
+        logger.debug(i18n.translate("logstream.unsubscribed", stream_id=stream_id))
 
     def unsubscribe_by_reply(self, reply):
         for key in [k for k in self._subs if k[0] is reply]:
@@ -172,8 +171,6 @@ class LogForwarder(logging.Handler):
     # ---------- logging.Handler ----------
 
     def emit(self, record: logging.LogRecord):
-        if record.name.startswith(self._self_prefix):
-            return
         try:
             item = self._format(record)
         except Exception:

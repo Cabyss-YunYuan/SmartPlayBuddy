@@ -37,7 +37,9 @@
     "stopped": "Reconnection stopped",
     "token_revoked": "Access token revoked, re-login required",
     "auth_failed": "Failed to obtain access token, reconnection stopped: {error}",
-    "claim_rejected": "Device claim rejected: {reason}, reconnecting to retry"
+    "claim_rejected": "Device claim rejected: {reason}, reconnecting to retry",
+    "already_connected": "Device already connected (stale session not expired); keeping connection and re-querying server session: {reason}",
+    "session_updated": "Authoritative session info updated from server"
   },
   "i18n": {
     "language_pack_not_found": "Language pack {package1} not found, falling back to {package2}",
@@ -68,7 +70,11 @@
       "browser_success": "Login successful! You can close this page.",
       "browser_failed": "Login failed: missing authorization code.",
       "unknown_error": "Unknown login error",
-      "ui_mode_no_auto_login": "UI mode: login is handled by the web app, not auto-triggered"
+      "ui_mode_no_auto_login": "UI mode: login is handled by the web app, not auto-triggered",
+      "force_relogin": "Forced re-login",
+      "tokens_reused": "Tokens valid, reusing existing login",
+      "refreshing_tokens": "Refreshing tokens...",
+      "needs_interactive_login": "Interactive login required"
     }
   },
   "driver": {
@@ -112,7 +118,8 @@
     "log_stream_stopped": "Log stream stopped: stream_id={stream_id}, sender={sender}",
     "log_unsupported_operate": "Unsupported log operate: {operate}",
     "keepalive_send_failed": "Keepalive ping send failed (channel down, stopping stream): stream_id={stream_id}, error={error}",
-    "keepalive_tick_failed": "Keepalive loop tick failed: {error}"
+    "keepalive_tick_failed": "Keepalive loop tick failed: {error}",
+    "device_name_updated": "Device name updated to server-authoritative value: {old} → {new}"
   },
   "logstream": {
     "subscribed": "Log stream subscribed: stream_id={stream_id}, level={level}, name={name}",
@@ -127,8 +134,8 @@
     "start_failed": "Failed to start local bridge: {error}",
     "unauthorized": "Local bridge handshake rejected: session token mismatch",
     "bad_origin": "Local bridge rejected origin: {origin}",
-    "web_connected": "Web console connected to local bridge (origin={origin})",
-    "web_disconnected": "Web console disconnected from local bridge",
+    "console_connected": "Console connected to local bridge (origin={origin})",
+    "console_disconnected": "Console disconnected from local bridge",
     "handler_error": "Local bridge connection handler error: {error}",
     "binary_without_text": "Binary frame received without preceding text frame, discarded",
     "msg_parse_failed": "Web message parse failed: {msg}",

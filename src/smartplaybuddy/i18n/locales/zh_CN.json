@@ -37,7 +37,9 @@
     "stopped": "已停止重连",
     "token_revoked": "访问令牌已被吊销，需重新登录",
     "auth_failed": "获取访问令牌失败，停止重连: {error}",
-    "claim_rejected": "设备声明被拒绝: {reason}，将断开重连重试"
+    "claim_rejected": "设备声明被拒绝: {reason}，将断开重连重试",
+    "already_connected": "设备已连接(旧会话未过期)，保持连接并重新查询服务端 session: {reason}",
+    "session_updated": "已从服务端更新 session 信息"
   },
   "i18n": {
     "language_pack_not_found": "未找到语言包 {package1}，默认语言包将使用 {package2}",
@@ -68,7 +70,11 @@
       "browser_success": "登录成功！可以关闭此页面。",
       "browser_failed": "登录失败：缺少授权码。",
       "unknown_error": "未知登录错误",
-      "ui_mode_no_auto_login": "UI 模式：登录由 Web 应用处理，不会自动触发"
+      "ui_mode_no_auto_login": "UI 模式：登录由 Web 应用处理，不会自动触发",
+      "force_relogin": "强制重新登录",
+      "tokens_reused": "令牌有效，复用已有登录",
+      "refreshing_tokens": "正在刷新令牌...",
+      "needs_interactive_login": "需要重新登录"
     }
   },
   "driver": {
@@ -112,7 +118,8 @@
     "log_stream_stopped": "日志流已停止: stream_id={stream_id}, sender={sender}",
     "log_unsupported_operate": "不支持的日志操作: {operate}",
     "keepalive_send_failed": "保活 ping 发送失败(通道已断，就地停流): stream_id={stream_id}, error={error}",
-    "keepalive_tick_failed": "保活循环本轮异常: {error}"
+    "keepalive_tick_failed": "保活循环本轮异常: {error}",
+    "device_name_updated": "设备名已更新为服务端值: {old} → {new}"
   },
   "logstream": {
     "subscribed": "日志流已订阅: stream_id={stream_id}, level={level}, name={name}",
@@ -127,8 +134,8 @@
     "start_failed": "启动本地桥失败: {error}",
     "unauthorized": "本地桥握手被拒：会话 token 不匹配",
     "bad_origin": "本地桥拒绝来源: {origin}",
-    "web_connected": "网页控制台已连接本地桥 (origin={origin})",
-    "web_disconnected": "网页控制台已断开本地桥",
+    "console_connected": "控制台已连接本地桥 (origin={origin})",
+    "console_disconnected": "控制台已断开本地桥",
     "handler_error": "本地桥连接处理异常: {error}",
     "binary_without_text": "收到没有前置文本帧的二进制帧，已丢弃",
     "msg_parse_failed": "网页消息解析失败: {msg}",

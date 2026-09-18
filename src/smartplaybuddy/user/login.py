@@ -289,18 +289,13 @@ async def _browser_login() -> Tokens:
 
 async def ensure_tokens(tokens: Tokens | None = None, force_login: bool = False) -> Tokens:
     """返回可用的令牌：仍然有效则复用，过期则刷新，刷新失败或 force_login 则登录。"""
-    if force_login:
-        clear_tokens()
-        tokens = await _browser_login()
-        Config.user = decode_jwt_payload(tokens.access_token)
-        return tokens
-
     if tokens is None:
         tokens = _load_tokens()
 
-    if tokens is not None and tokens.access_token:
+    if not force_login and tokens is not None and tokens.access_token:
         ttl = access_token_ttl(tokens.access_token)
         if ttl is None or ttl > TOKEN_REFRESH_MARGIN:
+            logger.info(i18n.translate("user.login.tokens_reused"))
             Config.user = decode_jwt_payload(tokens.access_token)
             return tokens
 
@@ -309,6 +304,7 @@ async def ensure_tokens(tokens: Tokens | None = None, force_login: bool = False)
         Config.user = decode_jwt_payload(refreshed.access_token)
         return refreshed
 
+    logger.info(i18n.translate("user.login.needs_interactive_login"))
     clear_tokens()
     tokens = await _browser_login()
     Config.user = decode_jwt_payload(tokens.access_token)

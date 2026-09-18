@@ -129,7 +129,7 @@ class LocalBridge:
         await self._ready.wait()
         if self._server is None:
             raise RuntimeError(i18n.translate("bridge.serve_failed", error=i18n.translate("bridge.server_not_ready")))
-        logger.info(i18n.translate("bridge.started", port=self._port))
+        logger.debug(i18n.translate("bridge.started", port=self._port))
 
     async def _serve(self):
         try:
@@ -191,7 +191,7 @@ class LocalBridge:
 
         reply = _WebReply(connection)
         self._conns.add(reply)
-        logger.info(i18n.translate("bridge.web_connected", origin=origin or "-"))
+        logger.info(i18n.translate("bridge.console_connected", origin=origin or "-"))
         try:
             await self._recv_loop(connection, reply)
         except websockets.exceptions.ConnectionClosed:
@@ -200,7 +200,7 @@ class LocalBridge:
             logger.error(i18n.translate("bridge.handler_error", error=e), exc_info=True)
         finally:
             self._drop_conn(reply)
-            logger.info(i18n.translate("bridge.web_disconnected"))
+            logger.debug(i18n.translate("bridge.console_disconnected"))
 
     async def _recv_loop(self, connection, reply: _WebReply):
         pending: Message | None = None

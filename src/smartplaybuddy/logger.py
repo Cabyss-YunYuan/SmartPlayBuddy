@@ -34,8 +34,8 @@ console_handler.setFormatter(log_format)
 package = "smartplaybuddy"
 logdir = "logs"
 
-name = "SmtPlay"
-# 本地 handler(控制台/文件)的输出级别。保持 INFO：本地输出不受逐帧噪音影响。
+name = "Smtplay"
+# 主日志文件固定 INFO：本地输出不受逐帧噪音影响。
 # 想在本地控制台直接看逐帧协议日志，临时改成 TRACE 即可。
 level = logging.INFO
 # level = logging.DEBUG
@@ -55,8 +55,22 @@ logger.setLevel(TRACE)
 console_handler.setLevel(level)
 logger.addHandler(console_handler)
 
-# 文件 Handler（按天轮转，保留 30 天）
+# 主日志文件（INFO+，按天轮转，保留 30 天）—— 始终干净的用户视角
 file_handler = TimedRotatingFileHandler(f"{log_path}/{name}.log", encoding="utf-8", when="D", interval=1, backupCount=30)
 file_handler.setFormatter(log_format)
-file_handler.setLevel(level)
+file_handler.setLevel(logging.INFO)
 logger.addHandler(file_handler)
+
+# 诊断日志文件（跟随 level 变量，按启动次数轮转）
+# level=DEBUG 时生成 SmtPlay.DEBUG.log，每次启动把旧文件顺延编号
+# 仅当 level 比 INFO 更详细时才创建，避免与主日志重复
+if level < logging.INFO:
+    from datetime import datetime
+    _level_name = logging.getLevelName(level)
+    _timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    _diag_path = f"{log_path}/{name}.{_level_name}.{_timestamp}.log"
+
+    diag_handler = logging.FileHandler(_diag_path, encoding="utf-8")
+    diag_handler.setFormatter(log_format)
+    diag_handler.setLevel(level)
+    logger.addHandler(diag_handler)

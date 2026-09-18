@@ -58,6 +58,9 @@ class Connector(ABC):
         self._stop_event = asyncio.Event()
         self._claim_pending = False
         self._connected_at = 0.0
+        #: 服务端权威 session 信息(由 session/status 响应填充)；每次连接重置为 None。
+        #: 本地 claim 的设备信息不完全可信，需要设备身份时一律以此为准。
+        self.session_info: dict | None = None
         # text(binary=true) 与其后的 binary 帧必须成对写出：
         # 服务端 ReadLoop 用 lastText* 缓存做配对，中间插入任何其他文本帧都会错配。
         self._send_lock = asyncio.Lock()
@@ -163,7 +166,7 @@ class Connector(ABC):
 
     async def connect(self, config):
         """建立一次连接并处理消息直到连接结束。异常不外抛，由 run() 决定是否重连。"""
-        logger.debug(i18n.translate("message.connecting"))
+        logger.info(i18n.translate("message.connecting"))
         try:
             self.conn = await websockets.connect(
                 self.url,
@@ -175,15 +178,17 @@ class Connector(ABC):
                 logger.info(i18n.translate("connector.reconnected", attempt=self.reconnect_attempts))
             self.reconnect_attempts = 0
             self._connected_at = time.monotonic()
-            logger.debug(i18n.translate("message.connect_success"))
+            self.session_info = None
+            logger.info(i18n.translate("message.connect_success"))
 
             self.System = self.SystemCls(self.conn)
             self.Session = self.SessionCls(self.conn)
             self.Error = self.ErrorCls(self.conn)
 
-            # 向服务端声明设备状态
+            # 向服务端声明设备状态，随后立即查询服务端视角的权威 session。
             self._claim_pending = True
             await self.Session.claims(config.get("status"))
+            await self.Session.query_status()
 
             await self.loop()
         except asyncio.CancelledError:
@@ -200,7 +205,7 @@ class Connector(ABC):
                 self.close_code = e.rcvd.code
                 if e.rcvd.code != 1000:
                     logger.error(i18n.translate("connector.connect_closed_error", code=e.rcvd.code, reason=e.rcvd.reason))
-            logger.debug(i18n.translate("message.connect_closed"))
+            logger.info(i18n.translate("message.connect_closed"))
         except OSError as e:
             # 涵盖 ConnectionRefusedError / socket.gaierror / 网络不可达
             logger.warning(i18n.translate("message.connect_server_failed"))
@@ -228,6 +233,17 @@ class Connector(ABC):
         return text.startswith("unknown device type:") or (
             text.startswith("device '") and text.endswith("is already connected")
         )
+
+    @staticmethod
+    def _is_already_connected(data) -> bool:
+        """claim 被拒是否属于"设备已连接(旧会话未过期)"——这是可自愈的正常状态，
+        不应断连重连，而应保持连接并补发 status 查询获取权威 session。"""
+        text = data if isinstance(data, str) else str(data or "")
+        return text.startswith("device '") and text.endswith("is already connected")
+
+    def _on_session_info_updated(self):
+        """服务端权威 session 信息更新后的钩子；子类可覆写以同步本地状态(如设备名)。"""
+        pass
 
     async def loop(self):
         """消息主循环：接收 text/binary 帧，配对后派发到 main()。"""
@@ -295,16 +311,22 @@ class Connector(ABC):
 
                 # 服务端自身产生的 error 没有 from(claim 被拒 / 未知消息类型 / 路由失败)。
                 if msg.Type == "error" and not msg.From:
-                    # 仅当错误内容命中 claim 被拒特征时才断连重连；
+                    # 仅当错误内容命中 claim 被拒特征时才处理；
                     # 其余无 from 的 error(如路由失败的 "session not found")不属于 claim 被拒，
                     # 应交给 main() 按 rid 精确停对应流，绝不能误判而反复断连重连。
                     if (self._claim_pending and self._is_claim_rejection(msg.Data)
                             and time.monotonic() - self._connected_at <= self.CLAIM_WINDOW):
+                        self._claim_pending = False
+                        if self._is_already_connected(msg.Data):
+                            # 旧 session 未过期属正常状态：保持连接，补发 status 查询获取权威 session，
+                            # 而非断连重连(否则会陷入"重连→再次 already connected"的死循环)。
+                            logger.warning(i18n.translate("connector.already_connected", reason=msg.Data))
+                            await self.Session.query_status()
+                            continue
                         # claim 被拒时连接依然"健康"，但本连接没有任何设备身份，
                         # 之后所有消息都会被服务端以 "device not found in connection status" 拒绝。
                         # 必须主动断开触发重连：服务端要等 PongWait(60s) 才回收残留会话，
                         # 退避重连几轮后即可 claim 成功。
-                        self._claim_pending = False
                         logger.error(i18n.translate("connector.claim_rejected", reason=msg.Data))
                         await self._drop_connection()
                         break
@@ -313,6 +335,16 @@ class Connector(ABC):
                 # 收到任何带 from 的消息说明服务端已按本设备地址完成路由，claim 必然已生效
                 if msg.From:
                     self._claim_pending = False
+
+                # 服务端权威 session 查询响应：以服务端返回为准更新 session_info 并触发钩子。
+                # 不 continue——继续派发到 main()，由 main() 无条件镜像回内嵌网页：
+                # 网页在桥模式下经 client 中继发起自己的 status 查询，需靠此镜像拿到回执
+                # (网页按 requestId 认领，连接器自身查询的回执 requestId 不匹配会被网页忽略)。
+                if msg.Type == "session" and msg.Action == "status" and isinstance(msg.Data, dict):
+                    self._claim_pending = False
+                    self.session_info = msg.Data
+                    logger.debug(i18n.translate("connector.session_updated"))
+                    self._on_session_info_updated()
 
                 # 系统消息(pong 等)先走内部逻辑，随后与其余消息一并派发到 main()，
                 # 由 main() 无条件镜像回内嵌网页；不再 continue，否则网页永远收不到 pong。
@@ -352,6 +384,10 @@ class Connector(ABC):
 
         async def claims(self, status: dict):
             await self.conn.send(message.session.claim(status))
+
+        async def query_status(self):
+            """查询服务端视角的本机权威 session 信息。"""
+            await self.conn.send(message.session.status())
 
 
     class ErrorCls:
