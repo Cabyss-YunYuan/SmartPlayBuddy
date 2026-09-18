@@ -125,5 +125,12 @@ class Message:
         if encoded is not None:
             d["data"] = encoded
 
-        logger.debug(translate("message.serialized", msg=str(d)))
+        # 高频控制帧降到 TRACE(不刷屏，只进日志流的 TRACE 档)：
+        #   - 流帧(如屏幕流 30fps)
+        #   - 保活 ping/pong(每秒每流一条)
+        # 其余非流帧记 DEBUG。
+        if self.Type == "stream" or (self.Type == "system" and self.Action in ("ping", "pong")):
+            logger.trace(translate("message.serialized", msg=str(d)))
+        else:
+            logger.debug(translate("message.serialized", msg=str(d)))
         return json.dumps(d)
