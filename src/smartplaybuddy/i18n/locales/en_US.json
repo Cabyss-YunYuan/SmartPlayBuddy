@@ -149,6 +149,23 @@
     "missing_field": "Missing required field: {field}",
     "server_not_ready": "Server not ready"
   },
+  "request": {
+    "title": "Authorization Request",
+    "incoming_request": "Incoming remote control authorization request",
+    "requester": "Requester: {address}",
+    "description": "Description: {desc}",
+    "approve": "Approve",
+    "reject": "Reject",
+    "cli_prompt": "Do you approve? (y/n): "
+  },
+  "permit": {
+    "request_approved": "Authorization request approved: request_id={request_id}",
+    "request_rejected": "Authorization request rejected: request_id={request_id}",
+    "event_activated": "Event lock activated: request_id={request_id}",
+    "event_released": "Event lock released: request_id={request_id}",
+    "unsupported_operate": "Unsupported event operate: {operate}",
+    "unauthorized_blocked": "Unauthorized message blocked: type={type}, rid={rid}, from={from_addr}"
+  },
   "ui": {
     "login": {
       "title": "Login",

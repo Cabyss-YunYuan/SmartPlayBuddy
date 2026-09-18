@@ -149,6 +149,23 @@
     "missing_field": "缺少必填字段: {field}",
     "server_not_ready": "服务未就绪"
   },
+  "request": {
+    "title": "授权请求",
+    "incoming_request": "收到远程控制授权请求",
+    "requester": "请求方：{address}",
+    "description": "操作描述：{desc}",
+    "approve": "同意",
+    "reject": "拒绝",
+    "cli_prompt": "是否同意？(y/n): "
+  },
+  "permit": {
+    "request_approved": "授权请求已批准: request_id={request_id}",
+    "request_rejected": "授权请求已拒绝: request_id={request_id}",
+    "event_activated": "事件锁已激活: request_id={request_id}",
+    "event_released": "事件锁已释放: request_id={request_id}",
+    "unsupported_operate": "不支持的事件操作: {operate}",
+    "unauthorized_blocked": "未授权消息已拦截: type={type}, rid={rid}, from={from_addr}"
+  },
   "ui": {
     "login": {
       "title": "登录",

@@ -346,10 +346,6 @@ class Connector(ABC):
                     logger.debug(i18n.translate("connector.session_updated"))
                     self._on_session_info_updated()
 
-                # 系统消息(pong 等)先走内部逻辑，随后与其余消息一并派发到 main()，
-                # 由 main() 无条件镜像回内嵌网页；不再 continue，否则网页永远收不到 pong。
-                if msg.Type == "system":
-                    logic.system(self, msg)
                 await self.main(msg)
             except websockets.exceptions.ConnectionClosed:
                 break

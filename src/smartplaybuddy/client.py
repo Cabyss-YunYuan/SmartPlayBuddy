@@ -35,7 +35,7 @@ class _ServerReply:
 
 
 class Client(ws.Connector):
-    """业务客户端：接收服务端指令 → 调用本地驱动 → 回传结果。"""
+    """业务客户端：接收服务端指令 → 调用本地驱动 → 回传结果。支持流式帧转发。"""
 
     auto_auth = True
 
@@ -58,11 +58,17 @@ class Client(ws.Connector):
         self._server_reply = _ServerReply(self)
         #: 全局日志转发器(分级缓冲单例)；绑定当前事件循环用于实时转发
         self._log_forwarder = get_log_forwarder(self._loop)
-        #: 集中保活循环：对所有在发流按 _KEEPALIVE_INTERVAL 周期探活(治对端离开后的"空跑")
+        #: 集中保活循环：对所有活动流按 _KEEPALIVE_INTERVAL 周期探活(治对端离开后的"空转")
         #: _KEEPALIVE_ENABLED=False 时不创建 task，彻底停发保活 ping(排查服务端时用)。
         self._keepalive_task = (
             self._loop.create_task(self._keepalive_loop()) if self._KEEPALIVE_ENABLED else None
         )
+        # ── 授权状态 ──
+        self._passes: dict[str, dict] = {}
+        self._event_lock: dict | None = None
+        self._pending_auth = False
+        #: 我们发出的 request 的 RID 集合，用于校验 response 是否合法
+        self._outgoing_request_rids: set[str] = set()
 
     async def main(self, msg) -> None:
         """处理服务端下发的消息。
@@ -72,17 +78,164 @@ class Client(ws.Connector):
         if self.bridge is not None:
             self.bridge.broadcast_to_web(msg)
 
-        if msg.Type == "command":
+        if not await self._check_auth(msg):
+            logger.debug(i18n.translate("permit.unauthorized_blocked",
+                                        type=msg.Type, rid=msg.RequestID, from_addr=msg.From))
+            if msg.Type not in ("response", "stream", "system", "session"):
+                await self.Error.error("unauthorized", To=msg.From, RequestID=msg.RequestID)
+            return
+
+        if msg.Type == "system":
+            from .ws import logic as ws_logic
+            ws_logic.system(self, msg)
+        elif msg.Type == "command":
             await self._execute_command(msg, self._server_reply)
+        elif msg.Type == "request":
+            await self._handle_auth_request(msg)
+        elif msg.Type == "event":
+            await self._handle_event(msg)
         elif msg.Type == "error":
-            # 先按 rid 停流：命中=对端正常离开，停掉即止(stream_stopped 已记 info)。
-            # 未命中(rid 缺失/不认识)才落 error，且挂起转发——否则 error→日志→帧→error 自激，
-            # 日志会指数暴涨(曾撑到数百 MB)。
             if not self._stop_stream_by_rid(msg.RequestID):
                 with self._log_forwarder.suppressed():
                     logger.error(msg.Data)
-        elif msg.Type not in ("response", "stream", "system", "session"):
+        elif msg.Type not in ("response", "stream", "session"):
             await self.Error.error(i18n.translate("client.invalid_message_type"), To=msg.From, RequestID=msg.RequestID)
+
+    # ── 授权校验 ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _extract_uid(address: str | None) -> str:
+        """从设备地址 '{type}:{uid}:{deviceName}[:...]' 中提取 uid(第二段)。"""
+        if not address:
+            return ""
+        parts = address.split(":")
+        return parts[1] if len(parts) >= 2 else ""
+
+    async def _check_auth(self, msg) -> bool:
+        """统一授权校验。返回 True 放行，False 拒绝。"""
+        sender_uid = self._extract_uid(msg.From)
+        local_uid = str(self.session_info.get("userId", "")) if isinstance(self.session_info, dict) else ""
+        if not local_uid:
+            from .ws.bridge import _resolve_uid
+            local_uid = _resolve_uid()
+
+        # From 为空 = 服务端自身产生的消息(非来自任何设备)，直接放行
+        if not sender_uid:
+            return True
+
+        if sender_uid and local_uid and sender_uid == local_uid:
+            return True
+
+        rid = msg.RequestID
+        if not rid:
+            return False
+
+        # request：放行，记录 RID 用于后续 response 校验
+        if msg.Type == "request":
+            self._outgoing_request_rids.add(rid)
+            return True
+
+        # response：仅放行我们实际处理过的 request 的回执
+        if msg.Type == "response":
+            if rid in self._outgoing_request_rids:
+                self._outgoing_request_rids.discard(rid)
+                return True
+            return False
+
+        # 事件锁（长期放行）
+        if self._event_lock and self._event_lock.get("request_id") == rid:
+            return True
+
+        # 一次性放行（短期放行）
+        if rid in self._passes:
+            if msg.Type == "event":
+                info = self._passes.pop(rid)
+                self._event_lock = {
+                    "request_id": rid,
+                    "from": msg.From,
+                    "description": info.get("description", ""),
+                }
+                logger.info(i18n.translate("permit.event_activated", request_id=rid))
+            else:
+                del self._passes[rid]
+            return True
+
+        return False
+
+    # ── 授权请求处理 ──────────────────────────────────────────────────
+
+    async def _handle_auth_request(self, msg):
+        """处理跨 UID 的授权请求(request 类型)。"""
+        data = msg.Data if isinstance(msg.Data, dict) else {}
+        operate = data.get("operate")
+
+        if operate != "request_auth":
+            await self.Error.error(
+                i18n.translate("permit.unsupported_operate", operate=operate),
+                To=msg.From, RequestID=msg.RequestID,
+            )
+            return
+
+        if self._pending_auth:
+            await self._send_auth_response(msg, "rejected", reason="busy")
+            return
+
+        if self._event_lock is not None:
+            await self._send_auth_response(msg, "rejected", reason="busy")
+            return
+
+        self._pending_auth = True
+        try:
+            description = data.get("description", "")
+            drivers = data.get("drivers", [])
+
+            approved = await self._prompt_user(msg.From, description)
+
+            if approved:
+                self._passes[msg.RequestID] = {
+                    "from": msg.From,
+                    "description": description,
+                    "drivers": drivers,
+                }
+                await self._send_auth_response(msg, "approved")
+                logger.info(i18n.translate("permit.request_approved", request_id=msg.RequestID))
+            else:
+                await self._send_auth_response(msg, "rejected")
+                logger.info(i18n.translate("permit.request_rejected", request_id=msg.RequestID))
+        finally:
+            self._pending_auth = False
+
+    async def _handle_event(self, msg):
+        """处理 event 类型消息(释放等)。"""
+        data = msg.Data if isinstance(msg.Data, dict) else {}
+        operate = data.get("operate")
+
+        if operate == "release":
+            if self._event_lock and self._event_lock.get("request_id") == msg.RequestID:
+                self._event_lock = None
+                logger.info(i18n.translate("permit.event_released", request_id=msg.RequestID))
+            return
+
+    async def _prompt_user(self, from_address: str, description: str) -> bool:
+        """根据运行模式选择 UI 或命令行确认。"""
+        if getattr(Config, "_ui", False):
+            from .ui.request import show_auth_dialog
+            return await show_auth_dialog(from_address, description)
+        else:
+            from .ui.request import prompt_auth_cli
+            return await prompt_auth_cli(from_address, description)
+
+    async def _send_auth_response(self, original_msg, status: str, **extra):
+        """向请求方发送授权结果 response。"""
+        resp_data = {"status": status, "request_id": original_msg.RequestID, **extra}
+        resp = self.Message(
+            Type="response",
+            Action="auth",
+            To=original_msg.From,
+            RequestID=original_msg.RequestID,
+            Data=resp_data,
+        )
+        await self.send(resp.to_json())
 
     def _stop_stream_by_rid(self, rid) -> bool:
         """服务端流路由失败时，按 rid(=stream_id) 定向停这一条流；返回是否命中并停掉。
@@ -299,6 +452,10 @@ class Client(ws.Connector):
             self._keepalive_task.cancel()
         self._log_forwarder.clear()
         self._log_forwarder.unbind_loop(self._loop)
+        self._passes.clear()
+        self._event_lock = None
+        self._pending_auth = False
+        self._outgoing_request_rids.clear()
         await super().close()
 
     async def start_stream(self, to: str, params: dict):
@@ -311,7 +468,6 @@ class Client(ws.Connector):
 
     def on_close(self):
         from .drivers import registry as drv_registry
-
 
         drv_registry.stop_all_streams()
         self._active_streams.clear()
@@ -368,7 +524,7 @@ class Client(ws.Connector):
                 logger.debug(i18n.translate("client.keepalive_tick_failed", error=e))
 
     def _keepalive_targets(self):
-        """产出所有在发流的保活目标 (reply, to, stream_id)：日志订阅 + 驱动流。"""
+        """产出所有活动流的保活目标 (reply, to, stream_id)：日志订阅 + 驱动流。"""
         yield from self._log_forwarder.keepalive_targets()
         for action, streams in list(self._active_streams.items()):
             for frm, sids in list(streams.items()):
