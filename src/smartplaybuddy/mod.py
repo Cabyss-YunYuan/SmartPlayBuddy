@@ -25,6 +25,9 @@ class _PermitEvent:
     async def __aenter__(self) -> str:
         loop = asyncio.get_event_loop()
         self._mod._permit_future = loop.create_future()
+        self._mod._revoke_future = None
+        self._mod._body_completed = False
+        self._mod._body_task = asyncio.current_task()
 
         msg = message.Message(
             Type="request",
@@ -46,6 +49,11 @@ class _PermitEvent:
 
         self._mod._permit_future = None
 
+        if status == "revoked":
+            self._mod._revoke_future = None
+            self._mod._body_completed = True
+            raise PermissionError("授权已被用户收回")
+
         if status != "approved":
             raise PermissionError(f"授权被拒绝: {status}")
 
@@ -57,9 +65,14 @@ class _PermitEvent:
             Data={"operate": "activate"},
         ))
 
+        self._mod._revoke_future = loop.create_future()
+
         return self._rid
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self._mod._body_completed = True
+        self._mod._body_task = None
+
         if self._rid:
             await self._mod.send(message.Message(
                 Type="event",
@@ -68,6 +81,13 @@ class _PermitEvent:
                 RequestID=self._rid,
                 Data={"operate": "release"},
             ))
+
+        revoke_future = self._mod._revoke_future
+        self._mod._revoke_future = None
+
+        if revoke_future is not None and revoke_future.done() and not revoke_future.cancelled():
+            raise PermissionError(i18n.translate("permit.revoked_by_user"))
+
         return False
 
 
@@ -79,16 +99,28 @@ class Mod(ws.Connector):
     def __init__(self, **config):
         super().__init__(**config)
         self._permit_future: asyncio.Future | None = None
+        self._revoke_future: asyncio.Future | None = None
+        self._body_completed: bool = False
+        self._body_task: asyncio.Task | None = None
 
     @staticmethod
     def permit_dispatch(func):
-        """装饰器：permit response 拦截。resolve _permit_future，不进入业务逻辑。"""
+        """装饰器：permit response / revoke error 拦截。"""
         async def wrapper(self, msg):
-            if (msg.Type == "response" and msg.Action == "permit"
-                    and self._permit_future
-                    and not self._permit_future.done()):
-                status = (msg.Data or {}).get("status", "rejected") if isinstance(msg.Data, dict) else "rejected"
-                self._permit_future.set_result(status)
+            if msg.Type == "response" and msg.Action == "permit":
+                if (self._permit_future
+                        and not self._permit_future.done()):
+                    status = (msg.Data or {}).get("status", "rejected") if isinstance(msg.Data, dict) else "rejected"
+                    self._permit_future.set_result(status)
+                    return
+            elif (msg.Type == "error" and msg.Action == "permit"
+                  and isinstance(msg.Data, dict)
+                  and msg.Data.get("operate") == "revoked"):
+                logger.info(i18n.translate("permit.revoke_received", request_id=msg.RequestID))
+                if self._revoke_future and not self._revoke_future.done():
+                    self._revoke_future.set_result("revoked")
+                if self._body_task and not self._body_completed:
+                    self._body_task.cancel()
                 return
             return await func(self, msg)
         return wrapper

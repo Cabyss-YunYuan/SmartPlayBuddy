@@ -67,8 +67,18 @@ class Client(ws.Connector):
         self._passes: dict[str, dict] = {}
         self._event_lock: dict | None = None
         self._pending_auth = False
+        #: 待处理的远程授权请求(广播发出后等待审批): {rid: {from, description}}
+        self._pending_auth_requests: dict[str, dict] = {}
+        #: 本机正在展示的 permission 弹窗: {rid: {from, description}}
+        self._pending_permission_dialogs: dict[str, dict] = {}
+        #: 已由本地弹窗或外部审批解决的 RID，防止重复发 mod 响应
+        self._resolved_permission_rids: set[str] = set()
         #: 我们发出的 request 的 RID 集合，用于校验 response 是否合法
         self._outgoing_request_rids: set[str] = set()
+        # ── 事件锁探针 ──
+        self._probe_task: asyncio.Task | None = None
+        self._probe_rids: set[str] = set()
+        self._pass_probe_map: dict[str, str] = {}
 
     @staticmethod
     def system_dispatch(func):
@@ -106,13 +116,30 @@ class Client(ws.Connector):
         if msg.Type == "command":
             await self._execute_command(msg, self._server_reply)
         elif msg.Type == "request":
-            await self._handle_auth_request(msg)
+            if msg.Action == "permission":
+                asyncio.create_task(self._handle_permission_request(msg))
+            else:
+                asyncio.create_task(self._handle_auth_request(msg))
+        elif msg.Type == "response":
+            if msg.Action == "permission":
+                await self._handle_permission_approved(msg)
         elif msg.Type == "event":
             await self._handle_event(msg)
         elif msg.Type == "error":
-            if not self._stop_stream_by_rid(msg.RequestID):
+            if msg.Action == "permit" and isinstance(msg.Data, dict) and msg.Data.get("operate") == "revoked":
+                pass
+            elif msg.RequestID in self._probe_rids:
+                self._probe_rids.discard(msg.RequestID)
+                pass_rid = self._pass_probe_map.pop(msg.RequestID, None)
+                if pass_rid:
+                    self._passes.pop(pass_rid, None)
+                    logger.warning(i18n.translate("permit.pass_probe_failed", pass_rid=pass_rid))
+                else:
+                    logger.warning(i18n.translate("permit.probe_failed", request_id=self._event_lock.get("request_id", "") if self._event_lock else ""))
+                    await self._do_revoke()
+            elif not self._stop_stream_by_rid(msg.RequestID):
                 with self._log_forwarder.suppressed():
-                    logger.error(msg.Data)
+                    logger.warning(msg.Data)
         elif msg.Type not in ("response", "stream", "session"):
             await self.Error.error(i18n.translate("client.invalid_message_type"), To=msg.From, RequestID=msg.RequestID)
 
@@ -138,10 +165,34 @@ class Client(ws.Connector):
         if not sender_uid:
             return True
 
-        if sender_uid and local_uid and sender_uid == local_uid:
+        rid = msg.RequestID
+
+        # 事件锁处理（优先于 UID 检查，确保同 UID 也能建立/匹配事件锁）
+        if rid:
+            # 已有事件锁 → 放行
+            if self._event_lock and self._event_lock.get("request_id") == rid:
+                return True
+
+            # 一次性放行 → 激活事件锁
+            if rid in self._passes:
+                if msg.Type == "event":
+                    info = self._passes.pop(rid)
+                    self._event_lock = {
+                        "request_id": rid,
+                        "from": msg.From,
+                        "description": info.get("description", ""),
+                    }
+                    logger.info(i18n.translate("permit.event_activated", request_id=rid))
+                    self._stop_pass_probe(rid)
+                    self._start_event_probe()
+                else:
+                    del self._passes[rid]
+                return True
+
+        # 同 UID → 放行
+        if sender_uid == local_uid:
             return True
 
-        rid = msg.RequestID
         if not rid:
             return False
 
@@ -157,30 +208,31 @@ class Client(ws.Connector):
                 return True
             return False
 
-        # 事件锁（长期放行）
-        if self._event_lock and self._event_lock.get("request_id") == rid:
-            return True
-
-        # 一次性放行（短期放行）
-        if rid in self._passes:
-            if msg.Type == "event":
-                info = self._passes.pop(rid)
-                self._event_lock = {
-                    "request_id": rid,
-                    "from": msg.From,
-                    "description": info.get("description", ""),
-                }
-                logger.info(i18n.translate("permit.event_activated", request_id=rid))
-            else:
-                del self._passes[rid]
-            return True
-
+        if msg.Type == "event" and msg.Action == "permit":
+            logger.debug(i18n.translate("permit.activate_blocked_by_auth",
+                                        rid=rid, sender_uid=sender_uid, local_uid=local_uid))
         return False
 
     # ── 授权请求处理 ──────────────────────────────────────────────────
 
+    def _self_address_prefix(self) -> str:
+        """本机 client 在服务端的地址前缀：client:{uid}:{deviceName}。"""
+        uid = ""
+        if isinstance(self.session_info, dict):
+            uid = str(self.session_info.get("userId", ""))
+        if not uid:
+            from .ws.bridge import _resolve_uid
+            uid = _resolve_uid()
+        if not uid:
+            return ""
+        return f"client:{uid}:{self.device_name}"
+
     async def _handle_auth_request(self, msg):
-        """处理跨 UID 的授权请求(request 类型)。"""
+        """处理来自 Mod 的跨 UID 授权请求(request/request_permit)。
+
+        不直接弹窗，而是广播 request(permission) 到所有同 UID 设备，
+        由回环触发本地弹窗，或由其他设备审批后回传结果。
+        """
         data = msg.Data if isinstance(msg.Data, dict) else {}
         operate = data.get("operate")
 
@@ -200,23 +252,226 @@ class Client(ws.Connector):
             return
 
         self._pending_auth = True
+        description = data.get("description", "")
+        rid = msg.RequestID
+
+        self._pending_auth_requests[rid] = {
+            "from": msg.From,
+            "description": description,
+        }
+
+        await self._broadcast_permission_request(rid, msg.From, description)
+
+    async def _handle_permission_request(self, msg):
+        """处理广播的 permission 请求：来自自己=回环弹窗，来自其他设备=忽略。"""
+        data = msg.Data if isinstance(msg.Data, dict) else {}
+        from_addr = msg.From
+        self_prefix = self._self_address_prefix()
+
+        if not (self_prefix and from_addr == self_prefix):
+            return
+
+        if not self._pending_auth:
+            return
+
+        rid = msg.RequestID
+        if rid not in self._pending_auth_requests:
+            return
+
+        description = data.get("description", "")
+        requester = data.get("requester", "")
+
+        future = asyncio.get_event_loop().create_future()
+        self._pending_permission_dialogs[rid] = {"future": future, "dialog": None}
+
+        if getattr(Config, "_ui", False):
+            asyncio.ensure_future(self._show_permission_dialog(requester or from_addr, description, future, rid))
+        else:
+            from .ui.request import prompt_auth_cli
+            asyncio.ensure_future(
+                self._resolve_dialog_future(prompt_auth_cli(requester or from_addr, description), future)
+            )
+
+        approved = await future
+
+        self._pending_permission_dialogs.pop(rid, None)
+
+        if rid in self._resolved_permission_rids:
+            return
+
+        info = self._pending_auth_requests.pop(rid, None)
+        if not info:
+            return
+        self._resolved_permission_rids.add(rid)
+        self._pending_auth = False
+
+        if approved:
+            mod_address = info["from"]
+            self._passes[rid] = {
+                "from": mod_address,
+                "description": info.get("description", ""),
+            }
+            resp = self.Message(
+                Type="response",
+                Action="permit",
+                To=mod_address,
+                RequestID=rid,
+                Data={"status": "approved", "request_id": rid},
+            )
+            await self.send(resp)
+            logger.info(i18n.translate("permit.request_approved", request_id=rid))
+            self._start_pass_probe(rid, mod_address)
+            await self._broadcast_permit_state({
+                "from": mod_address,
+                "description": info.get("description", ""),
+                "request_id": rid,
+            })
+            await self._broadcast_permission_resolved(rid, "approved")
+        else:
+            resp = self.Message(
+                Type="response",
+                Action="permit",
+                To=info["from"],
+                RequestID=rid,
+                Data={"status": "rejected", "request_id": rid},
+            )
+            await self.send(resp)
+            logger.info(i18n.translate("permit.request_rejected", request_id=rid))
+            await self._broadcast_permission_resolved(rid, "rejected")
+
+    async def _show_permission_dialog(self, requester: str, description: str, future: asyncio.Future, rid: str):
+        """创建并显示授权对话框，立即存储 dialog 引用以便外部关闭。"""
+        from .ui.request import AuthRequestDialog
+        from .ui import window as _main_window
+
+        parent = _main_window if _main_window else None
+        dialog = AuthRequestDialog(requester, description, parent)
+        dialog._future = future
+        dialog.open()
+
+        if rid in self._pending_permission_dialogs:
+            self._pending_permission_dialogs[rid]["dialog"] = dialog
+
         try:
-            description = data.get("description", "")
+            await future
+        except Exception:
+            pass
 
-            approved = await self._prompt_user(msg.From, description)
+    @staticmethod
+    async def _resolve_dialog_future(awaitable, future: asyncio.Future):
+        """将协程的结果转发到可外部解决的 future。"""
+        try:
+            result = await awaitable
+            if not future.done():
+                future.set_result(result)
+        except Exception:
+            if not future.done():
+                future.set_result(False)
 
-            if approved:
-                self._passes[msg.RequestID] = {
-                    "from": msg.From,
-                    "description": description,
-                }
-                await self._send_auth_response(msg, "approved")
-                logger.info(i18n.translate("permit.request_approved", request_id=msg.RequestID))
-            else:
-                await self._send_auth_response(msg, "rejected")
-                logger.info(i18n.translate("permit.request_rejected", request_id=msg.RequestID))
-        finally:
-            self._pending_auth = False
+    async def _handle_permission_approved(self, msg):
+        """处理 permission 请求的 response 回传(本地回环或其他设备审批)。"""
+        rid = msg.RequestID
+        from_addr = msg.From
+        self_prefix = self._self_address_prefix()
+
+        dialog_info = self._pending_permission_dialogs.pop(rid, None)
+        if dialog_info:
+            fut = dialog_info.get("future")
+            if fut and not fut.done():
+                fut.set_result(False)
+            dlg = dialog_info.get("dialog")
+            if dlg:
+                dlg.close()
+
+        if self_prefix and from_addr == self_prefix:
+            return
+
+        data = msg.Data if isinstance(msg.Data, dict) else {}
+        status = data.get("status", "unknown")
+        resolved_by = data.get("resolved_by", from_addr)
+
+        if rid in self._resolved_permission_rids:
+            return
+        self._resolved_permission_rids.add(rid)
+
+        info = self._pending_auth_requests.pop(rid, None)
+        if not info:
+            logger.info(i18n.translate("permit.broadcast_resolved",
+                                       request_id=rid, resolved_by=resolved_by, status=status))
+            return
+
+        self._pending_auth = False
+        mod_address = info["from"]
+        description = info.get("description", "")
+
+        if status == "approved":
+            self._passes[rid] = {
+                "from": mod_address,
+                "description": description,
+            }
+            resp = self.Message(
+                Type="response",
+                Action="permit",
+                To=mod_address,
+                RequestID=rid,
+                Data={"status": "approved", "request_id": rid},
+            )
+            await self.send(resp)
+            logger.info(i18n.translate("permit.remote_approved", request_id=rid, from_addr=resolved_by))
+            self._start_pass_probe(rid, mod_address)
+            await self._broadcast_permit_state({
+                "from": mod_address,
+                "description": description,
+                "request_id": rid,
+            })
+        else:
+            resp = self.Message(
+                Type="response",
+                Action="permit",
+                To=mod_address,
+                RequestID=rid,
+                Data={"status": "rejected", "request_id": rid},
+            )
+            await self.send(resp)
+            logger.info(i18n.translate("permit.remote_rejected", request_id=rid, from_addr=resolved_by))
+
+        await self._broadcast_permission_resolved(rid, status)
+
+    async def _broadcast_permission_resolved(self, rid: str, status: str):
+        """广播 response(permission) 通知所有设备关闭弹窗。"""
+        uid = ""
+        if isinstance(self.session_info, dict):
+            uid = str(self.session_info.get("userId", ""))
+        if not uid:
+            from .ws.bridge import _resolve_uid
+            uid = _resolve_uid()
+        if not uid:
+            return
+        await self.send(self.Message(
+            Type="response",
+            Action="permission",
+            To=f"client|web:{uid}:*",
+            RequestID=rid,
+            Data={"status": status, "resolved_by": self._self_address_prefix()},
+        ))
+
+    async def _broadcast_permission_request(self, rid: str, mod_address: str, description: str):
+        """广播 request(permission) 到所有同 UID 设备，请求用户确认。"""
+        uid = ""
+        if isinstance(self.session_info, dict):
+            uid = str(self.session_info.get("userId", ""))
+        if not uid:
+            from .ws.bridge import _resolve_uid
+            uid = _resolve_uid()
+        if not uid:
+            return
+        await self.send(self.Message(
+            Type="request",
+            Action="permission",
+            To=f"client|web:{uid}:*",
+            RequestID=rid,
+            Data={"requester": mod_address, "description": description},
+        ))
 
     async def _handle_event(self, msg):
         """处理 event 类型消息(释放等)。"""
@@ -225,9 +480,181 @@ class Client(ws.Connector):
 
         if operate == "release":
             if self._event_lock and self._event_lock.get("request_id") == msg.RequestID:
+                self._stop_event_probe()
                 self._event_lock = None
                 logger.info(i18n.translate("permit.event_released", request_id=msg.RequestID))
+                await self._broadcast_permit_state(None)
             return
+
+        if operate == "permit_state":
+            if self.bridge:
+                self.bridge.broadcast_to_web(msg)
+            return
+
+    async def _handle_permit_command(self, msg):
+        """处理 permit 相关命令(revoke/query)，由用户主动发起。"""
+        data = msg.Data if isinstance(msg.Data, dict) else {}
+        operate = data.get("operate")
+
+        if operate == "revoke":
+            await self._do_revoke()
+        elif operate == "query":
+            await self._reply_permit_query(msg)
+        else:
+            await self.Error.error(
+                i18n.translate("permit.unsupported_operate", operate=operate),
+                To=msg.From, RequestID=msg.RequestID,
+            )
+
+    async def _do_revoke(self):
+        """清除事件锁，通知 mod 权限已被用户收回，广播状态变化。"""
+        lock_info = self._event_lock
+        if not lock_info:
+            logger.debug(i18n.translate("permit.revoke_no_lock"))
+            return
+
+        mod_address = lock_info.get("from", "")
+        rid = lock_info.get("request_id", "")
+        self._stop_event_probe()
+        self._event_lock = None
+        logger.info(i18n.translate("permit.revoked", request_id=rid))
+
+        if mod_address and self.connected:
+            await self.send(self.Message(
+                Type="error",
+                Action="permit",
+                To=mod_address,
+                RequestID=rid,
+                Data={"operate": "revoked"},
+            ))
+
+        await self._broadcast_permit_state(None)
+
+    async def _broadcast_permit_state(self, lock_info: dict | None):
+        """通过通配符广播 permit 状态变化，并通知本地内嵌窗口。"""
+        if self.connected:
+            uid = ""
+            if isinstance(self.session_info, dict):
+                uid = str(self.session_info.get("userId", ""))
+            if not uid:
+                from .ws.bridge import _resolve_uid
+                uid = _resolve_uid()
+            if uid:
+                await self.send(self.Message(
+                    Type="event",
+                    Action="permit",
+                    To=f"web|client:{uid}:*",
+                    Data={"operate": "permit_state", "lock": lock_info},
+                ))
+
+        if self.bridge:
+            self.bridge.broadcast_to_web(self.Message(
+                Type="event",
+                Action="permit",
+                Data={"operate": "permit_state", "lock": lock_info},
+            ))
+
+    def _start_pass_probe(self, pass_rid: str, mod_address: str):
+        """启动 pass 阶段探针：每秒 ping mod，不可达时清除该次授权。"""
+        probe_rid = f"pass-probe:{pass_rid}"
+        self._pass_probe_map[probe_rid] = pass_rid
+        self._probe_rids.add(probe_rid)
+        self._loop.create_task(self._probe_pass_once(probe_rid, pass_rid, mod_address))
+
+    def _stop_pass_probe(self, pass_rid: str):
+        """停止指定 pass 的探针(已激活为事件锁)。"""
+        to_remove = None
+        for probe_rid, rid in self._pass_probe_map.items():
+            if rid == pass_rid:
+                to_remove = probe_rid
+                break
+        if to_remove:
+            del self._pass_probe_map[to_remove]
+            self._probe_rids.discard(to_remove)
+
+    async def _probe_pass_once(self, probe_rid: str, pass_rid: str, mod_address: str):
+        """单次 pass 探针：ping 一次后等待下次调度。"""
+        try:
+            while pass_rid in self._passes and probe_rid in self._pass_probe_map:
+                await asyncio.sleep(1.0)
+                if pass_rid not in self._passes or probe_rid not in self._pass_probe_map:
+                    break
+                if getattr(self, "conn", None) is None:
+                    continue
+                try:
+                    await self.System.ping(To=mod_address, RequestID=probe_rid)
+                except Exception as e:
+                    logger.debug(i18n.translate("permit.probe_send_failed", error=e))
+        except asyncio.CancelledError:
+            raise
+
+    def _start_event_probe(self):
+        """启动事件锁探针：每秒 ping mod，对端不可达时自动释放锁。"""
+        self._stop_event_probe()
+        self._probe_task = self._loop.create_task(self._event_probe_loop())
+
+    def _stop_event_probe(self):
+        """停止事件锁探针。"""
+        if self._probe_task:
+            self._probe_task.cancel()
+            self._probe_task = None
+        self._probe_rids.clear()
+        self._pass_probe_map.clear()
+
+    async def _event_probe_loop(self):
+        """每秒向 mod 发一条 system/ping，服务端回 error 时由 main() 触发释放。"""
+        try:
+            while self._event_lock:
+                await asyncio.sleep(1.0)
+                if not self._event_lock or getattr(self, "conn", None) is None:
+                    continue
+                mod_address = self._event_lock.get("from", "")
+                if not mod_address:
+                    continue
+                try:
+                    rid = f"probe:{self._event_lock.get('request_id', '')}:{id(self._probe_task)}"
+                    self._probe_rids.add(rid)
+                    await self.System.ping(To=mod_address, RequestID=rid)
+                except Exception as e:
+                    logger.debug(i18n.translate("permit.probe_send_failed", error=e))
+        except asyncio.CancelledError:
+            raise
+
+    async def _reply_permit_query(self, msg):
+        """回复当前事件锁状态查询。"""
+        lock = self._event_lock
+        if lock:
+            result = {
+                "locked": True,
+                "from": lock.get("from", ""),
+                "description": lock.get("description", ""),
+                "request_id": lock.get("request_id", ""),
+            }
+        else:
+            result = {"locked": False}
+        resp = self.Message(
+            Type="response",
+            Action="permit",
+            To=msg.From,
+            RequestID=msg.RequestID,
+            Data=result,
+        )
+        await self._server_reply.send_json(resp)
+
+    async def revoke_permit(self):
+        """Python API：供悬浮球等本地 UI 直接调用，收回 mod 控制权。"""
+        await self._do_revoke()
+
+    def query_permit(self) -> dict:
+        """Python API：返回当前事件锁状态。"""
+        if self._event_lock:
+            return {
+                "locked": True,
+                "from": self._event_lock.get("from", ""),
+                "description": self._event_lock.get("description", ""),
+                "request_id": self._event_lock.get("request_id", ""),
+            }
+        return {"locked": False}
 
     async def _prompt_user(self, from_address: str, description: str) -> bool:
         """根据运行模式选择 UI 或命令行确认。"""
@@ -288,6 +715,10 @@ class Client(ws.Connector):
             data = msg.Data if isinstance(msg.Data, dict) else {}
             operate = data.get("operate")
             _skey = stream_key or msg.From or ""
+
+            if msg.Action == "permit":
+                await self._handle_permit_command(msg)
+                return
 
             # 内置日志流：action=log 不经驱动子进程，直接在主进程订阅 SmtPlay logger
             if msg.Action == LOG_ACTION:
@@ -471,6 +902,9 @@ class Client(ws.Connector):
         self._passes.clear()
         self._event_lock = None
         self._pending_auth = False
+        self._pending_auth_requests.clear()
+        self._pending_permission_dialogs.clear()
+        self._resolved_permission_rids.clear()
         self._outgoing_request_rids.clear()
         await super().close()
 
@@ -485,6 +919,7 @@ class Client(ws.Connector):
     def on_close(self):
         from .drivers import registry as drv_registry
 
+        self._stop_event_probe()
         drv_registry.stop_all_streams()
         self._active_streams.clear()
         self._log_forwarder.unsubscribe_by_reply(self._server_reply)

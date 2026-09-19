@@ -161,10 +161,21 @@
   "permit": {
     "request_approved": "Authorization request approved: request_id={request_id}",
     "request_rejected": "Authorization request rejected: request_id={request_id}",
+    "remote_approved": "Remote device approved authorization: request_id={request_id}, from={from_addr}",
+    "remote_rejected": "Remote device rejected: request_id={request_id}, from={from_addr}",
+    "broadcast_resolved": "Permission request resolved by another device: request_id={request_id}, resolved_by={resolved_by}, status={status}",
     "event_activated": "Event lock activated: request_id={request_id}",
     "event_released": "Event lock released: request_id={request_id}",
     "unsupported_operate": "Unsupported event operate: {operate}",
-    "unauthorized_blocked": "Unauthorized message blocked: type={type}, rid={rid}, from={from_addr}"
+    "unauthorized_blocked": "Unauthorized message blocked: type={type}, rid={rid}, from={from_addr}",
+    "revoked": "User revoked control: request_id={request_id}",
+    "revoke_no_lock": "Revoke control: no active event lock",
+    "revoked_by_user": "Authorization revoked by user",
+    "revoke_received": "Revoke notification received: request_id={request_id}",
+    "activate_blocked_by_auth": "Activate event blocked by auth: rid={rid}, sender_uid={sender_uid}, local_uid={local_uid}",
+    "probe_failed": "Event lock probe failed, mod unreachable, auto-released: request_id={request_id}",
+    "probe_send_failed": "Event lock probe send failed: error={error}",
+    "pass_probe_failed": "Pass probe failed, mod unreachable, pass cleared: pass_rid={pass_rid}"
   },
   "ui": {
     "login": {

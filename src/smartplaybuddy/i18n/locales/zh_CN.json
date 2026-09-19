@@ -161,10 +161,21 @@
   "permit": {
     "request_approved": "授权请求已批准: request_id={request_id}",
     "request_rejected": "授权请求已拒绝: request_id={request_id}",
+    "remote_approved": "远端设备已批准授权: request_id={request_id}, from={from_addr}",
+    "remote_rejected": "远端设备已拒绝授权: request_id={request_id}, from={from_addr}",
+    "broadcast_resolved": "授权请求已被其他设备处理: request_id={request_id}, resolved_by={resolved_by}, status={status}",
     "event_activated": "事件锁已激活: request_id={request_id}",
     "event_released": "事件锁已释放: request_id={request_id}",
     "unsupported_operate": "不支持的事件操作: {operate}",
-    "unauthorized_blocked": "未授权消息已拦截: type={type}, rid={rid}, from={from_addr}"
+    "unauthorized_blocked": "未授权消息已拦截: type={type}, rid={rid}, from={from_addr}",
+    "revoked": "用户已收回控制权: request_id={request_id}",
+    "revoke_no_lock": "收回控制权：当前无活跃事件锁",
+    "revoked_by_user": "授权已被用户收回",
+    "revoke_received": "收到权限收回通知: request_id={request_id}",
+    "activate_blocked_by_auth": "激活事件被 auth 拦截: rid={rid}, sender_uid={sender_uid}, local_uid={local_uid}",
+    "probe_failed": "事件锁探针失败，mod 不可达，自动释放: request_id={request_id}",
+    "probe_send_failed": "事件锁探针发送失败: error={error}",
+    "pass_probe_failed": "授权探针失败，mod 不可达，清除授权: pass_rid={pass_rid}"
   },
   "ui": {
     "login": {
