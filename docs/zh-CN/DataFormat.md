@@ -12,7 +12,7 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| type | string | ✅ | 消息类型：`command` / `response` / `stream` / `error` / `request` / `event` / `system` / `session` |
+| type | string | ✅ | 消息类型：`command` / `response` / `stream` / `error` / `request` / `event` / `query` / `system` / `session` |
 | action | string | ✅ | 操作动作（如 `keyboard`、`mouse`、`screen`） |
 | from | string | ☐ | 发送方标识（**服务端自动填充**，格式：`{type}:{userId}:{deviceName}`） |
 | to | string | ☐ | 目标方标识（**路由关键字段**，格式：`{type}:{userId}:{deviceName}`） |
@@ -106,12 +106,10 @@
 ```
 
 流的生命周期：
-1. 发送 `command` + `operate: "start_stream"` 启动流
+1. 发送 `command` + `operate: "start-stream"` 启动流
 2. 服务端持续收到 `stream` 类型的帧并转发到目标
-3. 发送 `command` + `operate: "stop_stream"` 停止流
-4. 通配符 `action: "*"` + `operate: "stop_stream"` 可停止所有流
-
-**目标离线处理**：若流的目标设备离线，服务端会向发送方回传 `command` + `action: "*"` + `operate: "stop_stream"` 通知停止流。
+3. 发送 `command` + `action: "stop-stream"` + `data: {"stream_id": "xxx"}` 停止指定流
+4. 发送 `command` + `action: "stop-stream"` + `data: {"stream_id": "*"}` 停止所有流
 
 ### error — 错误
 
@@ -133,16 +131,14 @@
 
 客户端上报的事件消息（如设备状态变更、授权激活/释放等）。
 
+### query — 查询
+
+客户端向服务端或其他客户端发起的只读查询消息（如查询活跃流）。与 `command` 不同，查询不修改状态。
+
 ### system — 系统消息
 
-系统级协议消息，如用于保活的 `ping`/`pong`。由框架装饰器自动处理，不进入业务逻辑。
+系统级协议消息，如用于保活的 `ping`/`pong` 和用于带宽测速的 `speed_test`。由框架装饰器自动处理，不进入业务逻辑。
 
 ### session — 会话管理
 
 用于设备 claim 和状态查询的会话管理消息（如 `session/claim`、`session/status`）。由框架装饰器自动处理。
-
-## 保留类型
-
-| 类型 | 状态 | 说明 |
-|------|------|------|
-| `query` | 保留 | 预留给未来客户端向服务端或其他客户端发起的查询请求 |

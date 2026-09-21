@@ -8,7 +8,7 @@ from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
 from PyQt6.QtCore import QUrl, QTimer
 from PyQt6.QtNetwork import QNetworkCookie
 
-from .. import i18n, logger
+from ..utils import logger, translate
 from ..user.login import (
     Tokens, save_tokens,
     ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME,
@@ -20,7 +20,7 @@ import json
 import base64
 import time
 
-logger = logger.logger.getChild("User").getChild("LoginDialog")
+logger = logger.getChild("User").getChild("LoginDialog")
 
 LOGIN_WINDOW_SIZE = (480, 640)
 COOKIE_TIMEOUT = 300
@@ -34,7 +34,7 @@ class LoginDialog(QDialog):
         self._found_access = ""
         self._found_refresh = ""
 
-        self.setWindowTitle(i18n.translate("ui.login.title"))
+        self.setWindowTitle(translate("ui.login.title"))
         self._apply_screen_geometry(*LOGIN_WINDOW_SIZE)
 
         layout = QVBoxLayout(self)
@@ -71,10 +71,10 @@ class LoginDialog(QDialog):
                 f"{self._server_host}/api/user/auth/authorize?redirectUrl={redirect_url}"
             )
             iam_url = json.loads(resp.read())["url"]
-            logger.info(i18n.translate("user.login.opening_login"))
+            logger.info(translate("user.login.opening_login"))
             self._web_view.load(QUrl(iam_url))
         except Exception as e:
-            logger.error(i18n.translate("user.login.start_failed", error=e))
+            logger.error(translate("user.login.start_failed", error=e))
             return
 
         self._timeout_timer.start(COOKIE_TIMEOUT * 1000)
@@ -95,7 +95,7 @@ class LoginDialog(QDialog):
                 expires_in=expires_in,
             )
             save_tokens(self.tokens)
-            logger.info(i18n.translate("user.login.login_success", expires_in=expires_in))
+            logger.info(translate("user.login.login_success", expires_in=expires_in))
             self.accept()
 
     @staticmethod
@@ -111,7 +111,7 @@ class LoginDialog(QDialog):
         return 0
 
     def _on_timeout(self):
-        logger.warning(i18n.translate("user.login.dialog_timeout"))
+        logger.warning(translate("user.login.dialog_timeout"))
         self.reject()
 
 
@@ -122,7 +122,7 @@ def gui_login(server_host: str) -> Tokens:
         result = dialog.exec()
         if result == QDialog.DialogCode.Accepted and dialog.tokens:
             return dialog.tokens
-        raise RuntimeError(i18n.translate("user.login.cancelled_or_failed"))
+        raise RuntimeError(translate("user.login.cancelled_or_failed"))
     finally:
         dialog._web_view.setPage(None)
         profile.deleteLater()

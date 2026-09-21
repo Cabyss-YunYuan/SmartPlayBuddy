@@ -7,7 +7,7 @@ SmartPlayBuddy is a WebSocket-based remote device control system. With a plugin-
 ## Features
 
 - **Plugin-based Drivers** — Keyboard, mouse, screen capture and other drivers are loaded as plugins, supporting hot-plugging and crash isolation
-- **Streaming** — Supports high-frequency data streams such as screen capture, efficiently transmitted via the text + binary dual-frame protocol
+- **Streaming** — Supports high-frequency data streams such as screen capture, efficiently transmitted via the text + binary dual-frame protocol, with adaptive bandwidth control
 - **Mod Extensions** — Provides a Mod base class for third-party custom business logic
 - **Internationalization** — Built-in i18n module with multi-language hot-reload support
 - **JWT Authentication** — Server identity verification via JWT tokens
@@ -56,13 +56,18 @@ SmartPlayBuddy/
 │   │   ├── keyboard/      ← Keyboard driver
 │   │   ├── mouse/         ← Mouse driver
 │   │   └── screen/        ← Screen capture driver
-│   ├── i18n/              ← Internationalization module
-│   │   ├── translator.py  ← Translator
-│   │   └── locales/       ← Language packs
-│   ├── logger.py          ← Logging module
+│   ├── ui/                ← Qt GUI (optional)
+│   ├── utils/             ← Shared utilities
+│   │   ├── i18n/          ← Internationalization module
+│   │   │   ├── translator.py  ← Translator
+│   │   │   └── locales/       ← Language packs
+│   │   └── logger.py      ← Logging module
 │   ├── user/              ← User authentication (JWT login)
 │   └── ws/                ← WebSocket connector
 │       ├── connector.py   ← Connection base class (text+binary dual-frame protocol)
+│       ├── bridge.py      ← Local WebSocket bridge (for embedded console)
+│       ├── permit.py      ← Cross-UID authorization (event lock)
+│       ├── stream.py      ← Stream sender + bandwidth control
 │       ├── message/       ← Message protocol definitions
 │       └── logic/         ← System message handling
 ├── docs/                  ← Documentation
@@ -95,6 +100,7 @@ After the client starts, it will:
 - [DataFormat](docs/DataFormat.md) — WebSocket message protocol
 - [DriverSystem](docs/Driver.md) — Driver development guide
 - [ModDevelopment](docs/mods/ModDevelopment.md) — Mod extension development guide
+- [ConsoleAccess](docs/mods/ModConsoleAccess.md) — Mod console SDK integration
 
 ## Tech Stack
 

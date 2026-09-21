@@ -19,14 +19,13 @@ from dataclasses import dataclass
 
 import websockets
 
-from .. import i18n
-from .. import logger
+from ..utils import logger, translate
 from ..config import Config
 from . import logic
 from . import message
 from .message.message import Message
 
-logger = logger.logger.getChild("LocalBridge")
+logger = logger.getChild("LocalBridge")
 
 #: 本地端口鉴权失败时使用的关闭码(4000-4999 属 WebSocket 应用私有区间)。
 CLOSE_CODE_UNAUTHORIZED = 4401
@@ -123,12 +122,12 @@ class LocalBridge:
 
         self._port = _find_free_port()
         if not _is_port_available(self._port):
-            raise RuntimeError(i18n.translate("bridge.no_free_port"))
+            raise RuntimeError(translate("bridge.no_free_port"))
         self._task = asyncio.create_task(self._serve())
         await self._ready.wait()
         if self._server is None:
-            raise RuntimeError(i18n.translate("bridge.serve_failed", error=i18n.translate("bridge.server_not_ready")))
-        logger.debug(i18n.translate("bridge.started", port=self._port))
+            raise RuntimeError(translate("bridge.serve_failed", error=translate("bridge.server_not_ready")))
+        logger.debug(translate("bridge.started", port=self._port))
 
     async def _serve(self):
         try:
@@ -146,7 +145,7 @@ class LocalBridge:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(i18n.translate("bridge.serve_failed", error=e), exc_info=True)
+            logger.error(translate("bridge.serve_failed", error=e), exc_info=True)
         finally:
             self._server = None
             self._ready.set()
@@ -162,7 +161,7 @@ class LocalBridge:
         self._server = None
         self._conns.clear()
         self._streams.clear()
-        logger.debug(i18n.translate("bridge.stopped"))
+        logger.debug(translate("bridge.stopped"))
 
     def _origin_allowed(self, origin: str | None) -> bool:
         # 非浏览器客户端一般不带 Origin，放行；带 Origin 时须命中白名单(支持 * 通配)。
@@ -174,7 +173,7 @@ class LocalBridge:
     async def _handler(self, connection):
         # 子协议即会话 token：协商不上说明不是被注入 token 的可信内嵌页面。
         if connection.subprotocol != self._token:
-            logger.warning(i18n.translate("bridge.unauthorized"))
+            logger.warning(translate("bridge.unauthorized"))
             await connection.close(code=CLOSE_CODE_UNAUTHORIZED, reason="unauthorized")
             return
 
@@ -184,22 +183,22 @@ class LocalBridge:
         except Exception:
             pass
         if not self._origin_allowed(origin):
-            logger.warning(i18n.translate("bridge.bad_origin", origin=origin))
+            logger.warning(translate("bridge.bad_origin", origin=origin))
             await connection.close(code=CLOSE_CODE_BAD_ORIGIN, reason="origin not allowed")
             return
 
         reply = _WebReply(connection)
         self._conns.add(reply)
-        logger.info(i18n.translate("bridge.console_connected", origin=origin or "-"))
+        logger.info(translate("bridge.console_connected", origin=origin or "-"))
         try:
             await self._recv_loop(connection, reply)
         except websockets.exceptions.ConnectionClosed:
             pass
         except Exception as e:
-            logger.error(i18n.translate("bridge.handler_error", error=e), exc_info=True)
+            logger.error(translate("bridge.handler_error", error=e), exc_info=True)
         finally:
             self._drop_conn(reply)
-            logger.debug(i18n.translate("bridge.console_disconnected"))
+            logger.debug(translate("bridge.console_disconnected"))
 
     async def _recv_loop(self, connection, reply: _WebReply):
         pending: Message | None = None
@@ -208,7 +207,7 @@ class LocalBridge:
 
             if isinstance(raw, bytes):
                 if pending is None:
-                    logger.warning(i18n.translate("bridge.binary_without_text"))
+                    logger.warning(translate("bridge.binary_without_text"))
                     continue
                 pending.BinaryData = raw
                 await self._dispatch(pending, reply)
@@ -219,11 +218,11 @@ class LocalBridge:
                 d = json.loads(raw)
                 msg = Message.from_json(d)
             except json.JSONDecodeError:
-                logger.error(i18n.translate("bridge.msg_parse_failed", msg=raw))
+                logger.warning(translate("bridge.msg_parse_failed", msg=raw))
                 continue
             except KeyError as e:
-                logger.error(i18n.translate("bridge.msg_field_missing", field=e.args[0], msg=raw))
-                await reply.error(i18n.translate("bridge.missing_field", field=e.args[0]), RequestID=d.get("requestId"))
+                logger.warning(translate("bridge.msg_field_missing", field=e.args[0], msg=raw))
+                await reply.error(translate("bridge.missing_field", field=e.args[0]), RequestID=d.get("requestId"))
                 continue
 
             self._normalize_data(msg)
@@ -288,11 +287,7 @@ class LocalBridge:
             return
 
         if local:
-            # 保留网页原始 From 用于响应/帧路由(平台按 To 匹配 mod iframe)；
-            # reply.address 仅作为流记账 key，不写入 msg.From。
-            if not msg.From:
-                msg.From = reply.address
-            asyncio.create_task(self._client.execute_local(msg, reply, stream_key=reply.address))
+            asyncio.create_task(self._client.execute_local(msg, reply))
             return
 
         operate = msg.Data.get("operate") if isinstance(msg.Data, dict) else None
@@ -301,14 +296,14 @@ class LocalBridge:
         # 客户端尚未连上服务端(启动竞态 / 断线重连中)：无法透传。明确回执网页稍后重试，
         # 并按 DEBUG 记录——这是可自愈的瞬态，不该当转发失败刷 ERROR。
         if not self._client.connected:
-            logger.debug(i18n.translate("bridge.forward_not_connected"))
-            await reply.error(i18n.translate("bridge.forward_not_connected"), RequestID=rid)
+            logger.debug(translate("bridge.forward_not_connected"))
+            await reply.error(translate("bridge.forward_not_connected"), RequestID=rid)
             return
 
         # 仅登记流(用于网页断开时停掉远端流)；一次性命令的回程由 broadcast 无条件镜像
-        if operate == "start_stream":
+        if operate == "start-stream":
             self._streams[rid] = _StreamTarget(reply=reply, to=msg.To, action=msg.Action)
-        elif operate == "stop_stream":
+        elif operate == "stop-stream":
             sid = msg.Data.get("stream_id") if isinstance(msg.Data, dict) else None
             if sid:
                 self._streams.pop(sid, None)
@@ -324,8 +319,8 @@ class LocalBridge:
                 await self._client.send(msg)
         except Exception as e:
             self._streams.pop(rid, None)
-            logger.error(i18n.translate("bridge.forward_failed", error=e))
-            await reply.error(i18n.translate("bridge.forward_failed", error=e), RequestID=rid)
+            logger.error(translate("bridge.forward_failed", error=e))
+            await reply.error(translate("bridge.forward_failed", error=e), RequestID=rid)
 
     def broadcast_to_web(self, msg: Message) -> None:
         """把服务端下发的任意消息镜像回所有活跃的内嵌窗口连接(无论本地是否处理过)。"""
@@ -346,7 +341,7 @@ class LocalBridge:
             else:
                 await reply.send_json(msg)
         except Exception as e:
-            logger.error(i18n.translate("bridge.relay_failed", error=e))
+            logger.error(translate("bridge.relay_failed", error=e))
 
     def _drop_conn(self, reply: _WebReply):
         """网页断开：移出镜像集合，并主动停掉它发起的远端流，避免空转。"""
@@ -365,9 +360,9 @@ class LocalBridge:
                 Type="command",
                 Action=st.action,
                 To=st.to,
-                Data={"operate": "stop_stream", "stream_id": stream_id},
+                Data={"operate": "stop-stream", "stream_id": stream_id},
             )
             await self._client.send(stop)
-            logger.info(i18n.translate("bridge.orphan_stream_stop", stream_id=stream_id, to=st.to))
+            logger.info(translate("bridge.orphan_stream_stop", stream_id=stream_id, to=st.to))
         except Exception as e:
-            logger.debug(i18n.translate("bridge.orphan_stream_stop_failed", error=e))
+            logger.debug(translate("bridge.orphan_stream_stop_failed", error=e))

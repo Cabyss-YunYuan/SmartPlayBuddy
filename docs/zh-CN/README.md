@@ -7,7 +7,7 @@
 ## 功能特性
 
 - **插件化驱动** — 键鼠、屏幕捕获等驱动以插件形式加载，支持热插拔和崩溃隔离
-- **流式传输** — 支持屏幕捕获等高频数据流，通过 text + binary 双帧协议高效传输
+- **流式传输** — 支持屏幕捕获等高频数据流，通过 text + binary 双帧协议高效传输，并具备自适应带宽控制
 - **Mod 扩展** — 提供 Mod 基类，第三方可继承实现自定义业务逻辑
 - **国际化** — 内置 i18n 模块，支持多语言热重载
 - **JWT 认证** — 通过 JWT 令牌完成服务端身份验证
@@ -52,13 +52,18 @@ SmartPlayBuddy/
 │   │   ├── keyboard/      ← 键盘驱动
 │   │   ├── mouse/         ← 鼠标驱动
 │   │   └── screen/        ← 屏幕捕获驱动
-│   ├── i18n/              ← 国际化模块
-│   │   ├── translator.py  ← 翻译器
-│   │   └── locales/       ← 语言包
-│   ├── logger.py          ← 日志模块
+│   ├── ui/                ← Qt GUI（可选）
+│   ├── utils/             ← 公共工具
+│   │   ├── i18n/          ← 国际化模块
+│   │   │   ├── translator.py  ← 翻译器
+│   │   │   └── locales/       ← 语言包
+│   │   └── logger.py      ← 日志模块
 │   ├── user/              ← 用户认证（JWT 登录）
 │   └── ws/                ← WebSocket 连接器
 │       ├── connector.py   ← 连接基类（text+binary 双帧协议）
+│       ├── bridge.py      ← 本地 WebSocket 桥（内嵌控制台）
+│       ├── permit.py      ← 跨用户授权（事件锁）
+│       ├── stream.py      ← 流发送器 + 带宽控制
 │       ├── message/       ← 消息协议定义
 │       └── logic/         ← 系统消息处理
 ├── docs/                  ← 文档
@@ -91,6 +96,7 @@ smtplay
 - [数据格式](DataFormat.md) — WebSocket 消息协议
 - [驱动系统](Driver.md) — 驱动开发指南
 - [Mod 开发](mods/ModDevelopment.md) — Mod 扩展开发指南
+- [控制台接入](mods/ModConsoleAccess.md) — Mod 控制台 SDK 接入指南
 
 ## 技术栈
 

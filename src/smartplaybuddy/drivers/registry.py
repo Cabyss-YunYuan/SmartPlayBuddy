@@ -15,10 +15,10 @@ from pathlib import Path
 from typing import Dict, Optional, Callable
 
 try:
-    from ..i18n import translate
-    from .. import logger
+    from ..utils.i18n import translate
+    from ..utils import logger
 
-    logger = logger.logger.getChild("Registry")
+    logger = logger.getChild("Registry")
 
     HOST_SCRIPT = Path(__file__).parent / "host.py"
 
@@ -354,7 +354,7 @@ class DriverRegistry:
         proc = self._procs.get(driver_name)
         if proc:
             proc.unregister_stream_callback(stream_id)
-            proc.operate("stop_stream", {"operate": "stop_stream", "stream_id": stream_id})
+            proc.operate("stop-stream", {"operate": "stop-stream", "stream_id": stream_id})
 
     def stop_all_streams(self, action: str = None):
         info = self._info.get(action) if action else None
@@ -366,12 +366,12 @@ class DriverRegistry:
             if proc:
                 for stream_id in list(proc._stream_callbacks.keys()):
                     proc.unregister_stream_callback(stream_id)
-                    proc.operate("stop_stream", {"operate": "stop_stream", "stream_id": stream_id})
+                    proc.operate("stop-stream", {"operate": "stop-stream", "stream_id": stream_id})
         else:
             for proc in self._procs.values():
                 for stream_id in list(proc._stream_callbacks.keys()):
                     proc.unregister_stream_callback(stream_id)
-                    proc.operate("stop_stream", {"operate": "stop_stream", "stream_id": stream_id})
+                    proc.operate("stop-stream", {"operate": "stop-stream", "stream_id": stream_id})
 
     def reload(self, name: str):
         if name in self._procs:

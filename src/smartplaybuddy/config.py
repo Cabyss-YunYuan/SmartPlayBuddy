@@ -57,3 +57,23 @@ class Config:
     user: dict = {}
     _ui: bool = False
 
+    @classmethod
+    def build_connect_config(cls, device_type: str = "client") -> dict:
+        """构建 WebSocket 连接配置（含设备声明）。"""
+        device_info = {
+            "type": device_type,
+            "deviceName": cls.device_name,
+            "deviceInfo": "",
+            "platform": platform.platform(),
+            "machine": platform.machine(),
+            "appVersion": cls.version,
+        }
+        if device_type == "client":
+            import pyautogui
+            size = pyautogui.size()
+            device_info["screenResolution"] = f"{size.width}x{size.height}"
+        return {
+            "url": cls.ws_url,
+            "status": {"device": device_info},
+        }
+

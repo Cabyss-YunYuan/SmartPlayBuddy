@@ -19,7 +19,6 @@
     "binary_received": "Binary frame received: {size} bytes",
     "msg_received": "Message received: {msg}",
     "binary_paired": "Binary frame paired: type={type}, action={action}",
-    "msg_parsed": "Message parsed: type={type}, action={action}",
     "pending_set": "Pending set: waiting for binary frame",
     "loop_exited": "Message loop exited",
     "task_create_failed": "Failed to create connection task: {error}",
@@ -30,7 +29,6 @@
     "loop_exception": "Message loop exception: {error}",
     "handshake_rejected": "Handshake rejected: HTTP {code}, {error}",
     "connect_failed": "Connection failed: {error}",
-    "error_no_target": "Error message has no target (to), logged locally: {data}",
     "reconnect_in": "Reconnecting in {delay}s (attempt {attempt}, last close code: {code})",
     "reconnected": "Reconnected after {attempt} attempt(s)",
     "reconnect_gave_up": "Max reconnect attempts ({attempts}) reached, giving up",
@@ -51,15 +49,11 @@
       "auto_login_success": "Auto login successful, token expires in {expires_in} seconds",
       "auto_login_failed": "Auto login failed: {error}, re-login required",
       "opening_login": "Opening login window...",
-      "manual_login_hint": "If not redirected automatically, please open the following link: {url}",
       "login_success": "Login successful, token expires in {expires_in} seconds",
       "tokens_saved": "Tokens saved to system credential manager",
       "load_tokens_failed": "Failed to load tokens: {error}",
       "no_free_port": "No free port available",
       "tokens_cleared": "Local tokens cleared",
-      "waiting": "Please complete login in the login window...",
-      "timeout": "Login timed out, please retry",
-      "failed": "Login failed, please close the window and retry",
       "start_failed": "Failed to start login: {error}",
       "dialog_timeout": "Login dialog timed out",
       "cancelled_or_failed": "Login cancelled or failed",
@@ -67,14 +61,9 @@
       "process_crashed": "Login process crashed, please try again",
       "login_url": "If the login window doesn't open automatically, please visit: {url}",
       "token_exchange_failed": "Token exchange failed: no access_token received",
-      "browser_success": "Login successful! You can close this page.",
-      "browser_failed": "Login failed: missing authorization code.",
       "unknown_error": "Unknown login error",
       "ui_mode_no_auto_login": "UI mode: login is handled by the web app, not auto-triggered",
-      "force_relogin": "Forced re-login",
-      "tokens_reused": "Tokens valid, reusing existing login",
-      "refreshing_tokens": "Refreshing tokens...",
-      "needs_interactive_login": "Interactive login required"
+      "tokens_reused": "Tokens valid, reusing existing login"
     }
   },
   "driver": {
@@ -119,7 +108,18 @@
     "log_unsupported_operate": "Unsupported log operate: {operate}",
     "keepalive_send_failed": "Keepalive ping send failed (channel down, stopping stream): stream_id={stream_id}, error={error}",
     "keepalive_tick_failed": "Keepalive loop tick failed: {error}",
-    "device_name_updated": "Device name updated to server-authoritative value: {old} → {new}"
+    "device_name_updated": "Device name updated to server-authoritative value: {old} → {new}",
+    "bw_estimate_set": "Bandwidth estimate set: {bps}",
+    "bw_limit_exceeded": "Bandwidth limit exceeded! estimate={estimate} KB/s, current={current} KB/s",
+    "bw_near_limit": "Bandwidth near limit! estimate={estimate} KB/s, usage={usage}%",
+    "bw_speed_test_failed": "Bandwidth speed test round failed: {error}",
+    "bw_round_diag": "speed round: size={size}, up={t1}ms, down={t2}ms, up={up} KB/s, down={down} KB/s",
+    "bw_stream_estimate": "Stream {stream_id} bandwidth to {target}: {bps}",
+    "bw_stream_test_failed": "Stream {stream_id} speed test to {target} failed: {error}",
+    "bw_stream_test_no_result": "Stream {stream_id} speed test to {target} returned no result (peer not responding): no per-stream bandwidth limit set",
+    "stream_frames_dropped": "Stream frames dropped (5s stats): {drops}",
+    "query_action_not_found": "Unsupported query action: {action}",
+    "query_stream_not_found": "Stream not found: {stream_id}"
   },
   "logstream": {
     "subscribed": "Log stream subscribed: stream_id={stream_id}, level={level}, name={name}",
@@ -142,7 +142,6 @@
     "msg_field_missing": "Web message missing required field [{field}]: {msg}",
     "forward_failed": "Failed to forward to server: {error}",
     "forward_not_connected": "Client not yet connected to server; message cannot be forwarded, please retry later",
-    "relay_no_target": "No matching web connection for server reply, discarded: requestId={request_id}",
     "relay_failed": "Failed to relay reply to web: {error}",
     "orphan_stream_stop": "Web disconnected, stopping its remote stream: stream_id={stream_id}, to={to}",
     "orphan_stream_stop_failed": "Failed to stop remote stream: {error}",
@@ -179,12 +178,7 @@
   },
   "ui": {
     "login": {
-      "title": "Login",
-      "button": "Login"
-    },
-    "status": {
-      "not_connected": "Not connected",
-      "connected": "Connected: {user}"
+      "title": "Login"
     }
   }
 }

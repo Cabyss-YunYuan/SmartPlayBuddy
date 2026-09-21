@@ -190,7 +190,7 @@ class MyMod(Mod):
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `Type` | str | Message type: `command` / `response` / `stream` / `error` / `request` / `event` / `system` / `session` |
+| `Type` | str | Message type: `command` / `response` / `stream` / `error` / `request` / `event` / `query` / `system` / `session` |
 | `Action` | str | Operation action |
 | `From` | str \| None | Sender identifier |
 | `To` | str \| None | Target identifier |

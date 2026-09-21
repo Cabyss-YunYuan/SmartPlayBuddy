@@ -283,12 +283,12 @@ Frame header(type=0) + {"status":"error", "message":"Error description"}
     Subprocess   ← Frame header + {"status":"ok", "result":{...}}
 
 5. Streaming (e.g., screen capture)
-    ├→ Main program sends start_stream command
+    ├→ Main program sends start-stream command
     ├→ Driver enters streaming mode
     ├→ host.py periodically calls capture_frames()
     ├→ Each frame sent via IPC (JSON metadata + binary frame data)
     ├→ Main program registers callbacks to forward frame data to server
-    └→ Stops upon receiving stop_stream command
+    └→ Stops upon receiving stop-stream command
 
 6. Main program exits
     └→ registry.shutdown() → stops all subprocesses

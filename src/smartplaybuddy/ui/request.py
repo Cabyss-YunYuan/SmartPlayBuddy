@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 import asyncio
 
-from .. import i18n
+from ..utils import translate
 
 
 class AuthRequestDialog(QDialog):
@@ -17,7 +17,7 @@ class AuthRequestDialog(QDialog):
     def __init__(self, from_address: str, description: str, parent=None):
         super().__init__(parent)
         self._future: asyncio.Future | None = None
-        self.setWindowTitle(i18n.translate("request.title"))
+        self.setWindowTitle(translate("request.title"))
         self.setModal(True)
         self._build_ui(from_address, description)
 
@@ -31,28 +31,28 @@ class AuthRequestDialog(QDialog):
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(icon_label)
 
-        title = QLabel(i18n.translate("request.incoming_request"))
+        title = QLabel(translate("request.incoming_request"))
         title.setStyleSheet("font-size: 15px; font-weight: bold;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        from_label = QLabel(i18n.translate("request.requester", address=from_address))
+        from_label = QLabel(translate("request.requester", address=from_address))
         from_label.setWordWrap(True)
         layout.addWidget(from_label)
 
         if description:
-            desc_label = QLabel(i18n.translate("request.description", desc=description))
+            desc_label = QLabel(translate("request.description", desc=description))
             desc_label.setWordWrap(True)
             layout.addWidget(desc_label)
 
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(12)
 
-        reject_btn = QPushButton(i18n.translate("request.reject"))
+        reject_btn = QPushButton(translate("request.reject"))
         reject_btn.clicked.connect(lambda: self._resolve(False))
         reject_btn.setMinimumHeight(36)
 
-        approve_btn = QPushButton(i18n.translate("request.approve"))
+        approve_btn = QPushButton(translate("request.approve"))
         approve_btn.clicked.connect(lambda: self._resolve(True))
         approve_btn.setMinimumHeight(36)
         approve_btn.setDefault(True)
@@ -105,10 +105,10 @@ async def prompt_auth_cli(
 
 def _cli_input(from_address: str, description: str) -> bool:
     print(f"\n{'=' * 50}")
-    print(i18n.translate("request.incoming_request"))
-    print(i18n.translate("request.requester", address=from_address))
+    print(translate("request.incoming_request"))
+    print(translate("request.requester", address=from_address))
     if description:
-        print(i18n.translate("request.description", desc=description))
+        print(translate("request.description", desc=description))
     print('=' * 50)
-    answer = input(i18n.translate("request.cli_prompt")).strip().lower()
+    answer = input(translate("request.cli_prompt")).strip().lower()
     return answer in ('y', 'yes')

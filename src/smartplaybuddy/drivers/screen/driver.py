@@ -30,11 +30,11 @@ class ScreenDriver(BaseDriver):
         op = params.get("operate", "capture")
         if op == "capture":
             return self._capture(params)
-        elif op == "list_monitors":
+        elif op == "list-monitors":
             return self._list_monitors()
-        elif op == "start_stream":
+        elif op == "start-stream":
             return self._start_stream(params)
-        elif op == "stop_stream":
+        elif op == "stop-stream":
             return self._stop_stream(params)
         else:
             raise ValueError(f"Unknown operate: {op}")
@@ -109,13 +109,13 @@ class ScreenDriver(BaseDriver):
 
         device_idx = int(params.get("device_idx", 0))
         output_idx = int(params.get("output_idx", 0))
-        target_fps = int(params.get("target_fps", 30))
+        fps = int(params.get("fps", 30))
 
         camera = self._get_camera(device_idx, output_idx)
         key = (device_idx, output_idx)
         count = self._camera_stream_count.get(key, 0)
         if count == 0:
-            camera.start(target_fps=target_fps, video_mode=True)
+            camera.start(target_fps=fps, video_mode=True)
         self._camera_stream_count[key] = count + 1
 
         resolution = params.get("resolution")
@@ -125,14 +125,14 @@ class ScreenDriver(BaseDriver):
         self._streams[stream_id] = {
             "device_idx": device_idx,
             "output_idx": output_idx,
-            "target_fps": target_fps,
+            "fps": fps,
             "format": params.get("format", "jpeg"),
             "quality": int(params.get("quality", 80)),
             "resolution": resolution,
             "scale": float(params.get("scale", 1.0)),
         }
 
-        return {"status": "ok", "result": {"stream_id": stream_id, "target_fps": target_fps}}
+        return {"status": "ok", "result": {"stream_id": stream_id, "fps": fps}}
 
     def _stop_stream(self, params: dict) -> dict:
         stream_id = params.get("stream_id")

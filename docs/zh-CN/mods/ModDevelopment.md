@@ -190,7 +190,7 @@ class MyMod(Mod):
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `Type` | str | 消息类型：`command` / `response` / `stream` / `error` / `request` / `event` / `system` / `session` |
+| `Type` | str | 消息类型：`command` / `response` / `stream` / `error` / `request` / `event` / `query` / `system` / `session` |
 | `Action` | str | 操作动作 |
 | `From` | str \| None | 发送方标识 |
 | `To` | str \| None | 目标方标识 |

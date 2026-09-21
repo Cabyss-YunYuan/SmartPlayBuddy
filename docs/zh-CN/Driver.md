@@ -283,12 +283,12 @@ class StreamingDriver(BaseDriver):
     子进程 ← 帧头 + {"status":"ok", "result":{...}}
 
 5. 流式传输（如屏幕捕获）
-    ├→ 主程序发送 start_stream 命令
+    ├→ 主程序发送 start-stream 命令
     ├→ 驱动进入流式模式
     ├→ host.py 周期性调用 capture_frames()
     ├→ 每帧通过 IPC 发送（JSON 元数据 + 二进制帧数据）
     ├→ 主程序注册回调，将帧数据转发到服务端
-    └→ 收到 stop_stream 命令后停止
+    └→ 收到 stop-stream 命令后停止
 
 6. 主程序退出
     └→ registry.shutdown() → 停止所有子进程

@@ -6,7 +6,8 @@ import json
 import importlib.resources
 from .. import logger
 
-logger = logger.logger.getChild("Translator")
+logger = logger.getChild("Translator")
+
 
 class Translator:
     language: str = "zh_CN"
@@ -15,7 +16,6 @@ class Translator:
 
     def __init__(self, language: str = "zh_CN"):
         self.language = language
-        # 自动扫描 locales 目录下所有 .json 语言包
         self.locales_dir = importlib.resources.files(__package__).joinpath("locales")
         self.languages = []
         for file in self.locales_dir.iterdir():
@@ -24,7 +24,6 @@ class Translator:
 
         self.set_language(language)
 
-        # en_US 作为默认回退语言
         if "en_US" in self.languages:
             with self.locales_dir.joinpath("en_US.json").open("r", encoding="utf-8") as f:
                 self.default = json.load(f)
@@ -65,9 +64,7 @@ class Translator:
                                     removed=", ".join(removed) or "无"))
 
     def translate(self, keys: str, *args, **kwargs):
-        # 优先当前语言，回退默认语言
         for (lang, text) in [(self.language, self.translation.copy()), ("default", self.default.copy())]:
-            # 按 "." 分割逐级查找嵌套 key
             for key in keys.split("."):
                 if not key or key not in text:
                     break

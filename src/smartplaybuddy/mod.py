@@ -3,14 +3,14 @@ Mod 开发入口模块。
 提供 Mod 基类供第三方开发者继承，实现自定义消息处理逻辑。
 """
 from . import ws
-from . import i18n
-from . import logger
+from .utils import i18n
+from .utils import logger
 from .config import Config
 from .ws import message
 import asyncio
 
 
-logger = logger.logger.getChild("Mod")
+logger = logger.getChild("Mod")
 
 
 class _PermitEvent:
@@ -34,7 +34,7 @@ class _PermitEvent:
             Action="permit",
             To=self._target,
             Data={
-                "operate": "request_permit",
+                "operate": "request-permit",
                 "description": self._description,
             },
         )
@@ -149,24 +149,9 @@ def main(mod: type[Mod] = Mod):
     async def start():
         from . import user
 
-        import platform
-
         await user.ensure_tokens()
 
-        mod_config = {
-            "url": Config.ws_url,
-            "status": {
-                "device": {
-                    "type": "mod",
-                    "deviceName": Config.device_name,
-                    "deviceInfo": "",
-                    "platform": platform.platform(),
-                    "machine": platform.machine(),
-                    "appVersion": Config.version,
-                }
-            }
-        }
-        client = mod(**mod_config)
+        client = mod(**Config.build_connect_config("mod"))
 
         try:
             await client.connection

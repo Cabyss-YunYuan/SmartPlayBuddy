@@ -12,7 +12,7 @@ All messages use a unified JSON structure:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| type | string | ✅ | Message type: `command` / `response` / `stream` / `error` / `request` / `event` / `system` / `session` |
+| type | string | ✅ | Message type: `command` / `response` / `stream` / `error` / `request` / `event` / `query` / `system` / `session` |
 | action | string | ✅ | Operation action (e.g., `keyboard`, `mouse`, `screen`) |
 | from | string | ☐ | Sender identifier (**auto-filled by server**, format: `{type}:{userId}:{deviceName}`) |
 | to | string | ☐ | Target identifier (**key routing field**, format: `{type}:{userId}:{deviceName}`) |
@@ -106,12 +106,10 @@ Streaming messages for high-frequency scenarios like screen capture. Structure i
 ← binary: [JPEG frame data]
 ```
 Stream lifecycle:
-1. Send `command` + `operate: "start_stream"` to start the stream
+1. Send `command` + `operate: "start-stream"` to start the stream
 2. Server continuously receives `stream` type frames and forwards to the target
-3. Send `command` + `operate: "stop_stream"` to stop the stream
-4. Wildcard `action: "*"` + `operate: "stop_stream"` stops all streams
-
-**Target offline handling**: If the stream target goes offline, the server sends back a `command` with `action: "*"` + `operate: "stop_stream"` to notify the sender to stop the stream.
+3. Send `command` + `action: "stop-stream"` + `data: {"stream_id": "xxx"}` to stop a specific stream
+4. Send `command` + `action: "stop-stream"` + `data: {"stream_id": "*"}` to stop all streams
 
 ### error — Error
 
@@ -133,16 +131,14 @@ Request messages sent to another party that expect a response (e.g., authorizati
 
 Event messages reported by the client (e.g., device status changes, authorization activation/release).
 
+### query — Query
+
+Read-only query messages from client to server or other clients (e.g., querying active streams). Unlike `command`, queries do not modify state.
+
 ### system — System Message
 
-System-level protocol messages such as `ping`/`pong` for keepalive. Handled automatically by the framework decorator before reaching business logic.
+System-level protocol messages such as `ping`/`pong` for keepalive and `speed_test` for bandwidth measurement. Handled automatically by the framework decorator before reaching business logic.
 
 ### session — Session Management
 
 Session management messages for device claim and status queries (e.g., `session/claim`, `session/status`). Handled automatically by the framework decorator.
-
-## Reserved Types
-
-| Type | Status | Description |
-|------|--------|-------------|
-| `query` | Reserved | Reserved for future query requests from client to server or other clients |

@@ -19,7 +19,7 @@ from ..user.login import (
     access_token_ttl, decode_jwt_payload, refresh_login,
     ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME, TOKEN_REFRESH_MARGIN,
 )
-from .. import i18n
+from ..utils import translate
 
 
 class MainWindow(QMainWindow):
@@ -28,7 +28,7 @@ class MainWindow(QMainWindow):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.setWindowTitle(i18n.translate("app.name"))
+        self.setWindowTitle(translate("app.name"))
 
         self._profile = QWebEngineProfile(self)
         self._profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.MemoryHttpCache)

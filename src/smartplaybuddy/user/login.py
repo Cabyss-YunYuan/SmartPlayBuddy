@@ -1,5 +1,5 @@
-from .. import i18n
-from .. import logger
+from ..utils import i18n
+from ..utils import logger
 from ..config import Config
 
 import socket
@@ -17,7 +17,7 @@ import keyring
 import time
 from dataclasses import dataclass, asdict
 
-logger = logger.logger.getChild("User").getChild("Login")
+logger = logger.getChild("User").getChild("Login")
 
 SERVICE_NAME = "SmartPlayBuddy"
 ACCOUNT_NAME = "UserTokens"

@@ -19,7 +19,6 @@
     "binary_received": "收到二进制帧: {size} 字节",
     "msg_received": "收到消息: {msg}",
     "binary_paired": "二进制帧已配对: type={type}, action={action}",
-    "msg_parsed": "消息已解析: type={type}, action={action}",
     "pending_set": "已设置等待: 等待二进制帧",
     "loop_exited": "消息循环已退出",
     "task_create_failed": "创建连接任务失败: {error}",
@@ -30,7 +29,6 @@
     "loop_exception": "消息循环异常: {error}",
     "handshake_rejected": "握手被拒绝：HTTP {code}，{error}",
     "connect_failed": "连接失败: {error}",
-    "error_no_target": "错误消息缺少目标(to)，仅本地记录: {data}",
     "reconnect_in": "第 {attempt} 次重连将在 {delay}s 后开始（上次关闭码: {code}）",
     "reconnected": "重连成功（共尝试 {attempt} 次）",
     "reconnect_gave_up": "已达最大重试次数 {attempts}，停止重连",
@@ -51,15 +49,11 @@
       "auto_login_success": "自动登录成功，令牌有效期 {expires_in} 秒",
       "auto_login_failed": "自动登录失败: {error}，需重新登录",
       "opening_login": "正在打开登录窗口...",
-      "manual_login_hint": "如果无法自动跳转，请手动打开以下链接: {url}",
       "login_success": "登录成功，令牌有效期 {expires_in} 秒",
       "tokens_saved": "令牌已保存至系统凭据管理器",
       "load_tokens_failed": "加载令牌失败: {error}",
       "no_free_port": "无法找到可用的空闲端口",
       "tokens_cleared": "本地令牌已清除",
-      "waiting": "请在登录窗口中完成登录...",
-      "timeout": "登录超时，请重试",
-      "failed": "登录失败，请关闭窗口后重试",
       "start_failed": "启动登录失败: {error}",
       "dialog_timeout": "登录对话框超时",
       "cancelled_or_failed": "登录已取消或失败",
@@ -67,14 +61,9 @@
       "process_crashed": "登录进程异常退出，请重试",
       "login_url": "如登录窗口未自动打开，请手动访问：{url}",
       "token_exchange_failed": "令牌兑换失败，未收到 access_token",
-      "browser_success": "登录成功！可以关闭此页面。",
-      "browser_failed": "登录失败：缺少授权码。",
       "unknown_error": "未知登录错误",
       "ui_mode_no_auto_login": "UI 模式：登录由 Web 应用处理，不会自动触发",
-      "force_relogin": "强制重新登录",
-      "tokens_reused": "令牌有效，复用已有登录",
-      "refreshing_tokens": "正在刷新令牌...",
-      "needs_interactive_login": "需要重新登录"
+      "tokens_reused": "令牌有效，复用已有登录"
     }
   },
   "driver": {
@@ -119,7 +108,18 @@
     "log_unsupported_operate": "不支持的日志操作: {operate}",
     "keepalive_send_failed": "保活 ping 发送失败(通道已断，就地停流): stream_id={stream_id}, error={error}",
     "keepalive_tick_failed": "保活循环本轮异常: {error}",
-    "device_name_updated": "设备名已更新为服务端值: {old} → {new}"
+    "device_name_updated": "设备名已更新为服务端值: {old} → {new}",
+    "bw_estimate_set": "带宽估计已设置: {bps}",
+    "bw_limit_exceeded": "带宽上限已超出！估计={estimate} KB/s，当前={current} KB/s",
+    "bw_near_limit": "带宽接近上限！估计={estimate} KB/s，使用率={usage}%",
+    "bw_speed_test_failed": "带宽测速单轮失败: {error}",
+    "bw_round_diag": "测速轮: 载荷={size}, 上行={t1}ms, 下行={t2}ms, 上行={up} KB/s, 下行={down} KB/s",
+    "bw_stream_estimate": "流 {stream_id} 到 {target} 的带宽估计: {bps}",
+    "bw_stream_test_failed": "流 {stream_id} 到 {target} 测速失败: {error}",
+    "bw_stream_test_no_result": "流 {stream_id} 到 {target} 测速无结果(对端未响应): 未设定单流带宽上限",
+    "stream_frames_dropped": "流帧丢弃(5s统计): {drops}",
+    "query_action_not_found": "不支持的查询操作: {action}",
+    "query_stream_not_found": "未找到流: {stream_id}"
   },
   "logstream": {
     "subscribed": "日志流已订阅: stream_id={stream_id}, level={level}, name={name}",
@@ -142,7 +142,6 @@
     "msg_field_missing": "网页消息缺少必填字段 [{field}]: {msg}",
     "forward_failed": "转发到服务端失败: {error}",
     "forward_not_connected": "客户端尚未连接服务端，消息暂无法转发，请稍后重试",
-    "relay_no_target": "服务端回执无对应网页连接，已丢弃: requestId={request_id}",
     "relay_failed": "回执转发网页失败: {error}",
     "orphan_stream_stop": "网页断开，停止其发起的远端流: stream_id={stream_id}, to={to}",
     "orphan_stream_stop_failed": "停止远端流失败: {error}",
@@ -179,12 +178,7 @@
   },
   "ui": {
     "login": {
-      "title": "登录",
-      "button": "登录"
-    },
-    "status": {
-      "not_connected": "未连接",
-      "connected": "已连接: {user}"
+      "title": "登录"
     }
   }
 }

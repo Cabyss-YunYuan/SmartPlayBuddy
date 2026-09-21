@@ -10,17 +10,19 @@ import time
 import websockets
 import json
 from abc import ABC, abstractmethod
-from .. import i18n
-from .. import logger
+from ..utils import i18n
+from ..utils import logger
+from ..utils import translate
 from . import logic
 from . import message
+from .stream import BandwidthController
 
 try:  # websockets >= 14 抛 InvalidStatus，旧版本抛 InvalidStatusCode
     from websockets.exceptions import InvalidStatus as _InvalidStatus
 except ImportError:  # pragma: no cover
     from websockets.exceptions import InvalidStatusCode as _InvalidStatus
 
-logger = logger.logger.getChild("Connector")
+logger = logger.getChild("Connector")
 
 # 服务端在 access token 被吊销(他处登出)时使用的关闭码，见 claimlogic.go closeCodeTokenRevoked。
 # 此时 refresh token 通常一并被吊销，只能重新走浏览器登录。
@@ -50,21 +52,17 @@ class Connector(ABC):
     def __init__(self, **config):
         self.url = config.get("url", "ws://smtplay.cabyss.cn:2508/ws")
         self.config = config
-        #: 当前服务端连接：connect() 成功前、以及断开退避期间均为 None。
-        #: send/send_pair 与桥转发都先查 connected，避免属性缺失抛 AttributeError。
         self.conn: "websockets.ClientConnection | None" = None
         self.close_code: int | None = None
         self.reconnect_attempts = 0
         self._stop_event = asyncio.Event()
         self._claim_pending = False
         self._connected_at = 0.0
-        #: 服务端权威 session 信息(由 session/status 响应填充)；每次连接重置为 None。
-        #: 本地 claim 的设备信息不完全可信，需要设备身份时一律以此为准。
         self.session_info: dict | None = None
-        # text(binary=true) 与其后的 binary 帧必须成对写出：
-        # 服务端 ReadLoop 用 lastText* 缓存做配对，中间插入任何其他文本帧都会错配。
         self._send_lock = asyncio.Lock()
         self._ready = asyncio.Event()
+        #: 全局上行带宽控制器(仅服务端链路生效，重连时重置)
+        self._bw_controller = BandwidthController()
         try:
             self.connection = asyncio.create_task(self.run())
         except Exception as e:
@@ -199,6 +197,7 @@ class Connector(ABC):
             self.reconnect_attempts = 0
             self._connected_at = time.monotonic()
             self.session_info = None
+            self._bw_controller.reset()
             logger.info(i18n.translate("message.connect_success"))
 
             self.System = self.SystemCls(self.conn)
@@ -322,8 +321,13 @@ class Connector(ABC):
                             except (json.JSONDecodeError, ValueError):
                                 pass
 
-                    # 标记 __binary__ 的消息需要等待后续二进制帧
-                    if isinstance(msg.Data, dict) and msg.Data.pop("__binary__", False):
+                    # 需要等待后续二进制帧的消息：
+                    # - 服务端使用顶层 "binary": true
+                    # - 客户端自发自收使用 Data 内 "__binary__": true
+                    needs_binary = d.get("binary") or (
+                        isinstance(msg.Data, dict) and msg.Data.pop("__binary__", False)
+                    )
+                    if needs_binary:
                         pending = msg
                         if msg.Type != "stream":
                             logger.debug(i18n.translate("connector.pending_set"))

@@ -3,8 +3,8 @@
 Message 数据类 + 雪花 ID 生成器。
 序列化时 Data 字段经 Base64 编码，二进制字段通过 Binary 标记。
 """
-from ...i18n import translate
-from ... import logger
+from ...utils.i18n import translate
+from ...utils import logger
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -14,7 +14,7 @@ import time
 import threading
 
 
-logger = logger.logger.getChild("ws").getChild("message")
+logger = logger.getChild("ws").getChild("message")
 
 
 class SnowflakeGenerator:
@@ -52,6 +52,10 @@ class SnowflakeGenerator:
 
 
 _generator = SnowflakeGenerator()
+
+
+def generate_rid() -> str:
+    return _generator.generate()
 
 
 @dataclass

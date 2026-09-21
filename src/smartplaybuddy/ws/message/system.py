@@ -27,3 +27,24 @@ def pong(To: str | None = None, RequestID: str | None = None, Data=None):
         RequestID=RequestID,
         Data=Data,
     ).to_json()
+
+
+def speed_test(payload_size: int = 256_000, RequestID: str | None = None):
+    """构造测速消息对：(meta_message, binary_payload)。
+
+    服务端收到后回两条：
+      - system/speed-test-result (text)：{receivedBytes, receivedAt}
+      - system/speed-test-return (text+binary)：原样回显二进制载荷
+
+    载荷内容与吞吐测量无关，用零填充(避免 os.urandom 阻塞事件循环)。
+    """
+    import time as _time
+    meta = Message(
+        Type="system",
+        Action="speed-test",
+        RequestID=RequestID,
+        Data={"time": _time.time(), "_mono": _time.monotonic()},
+        Binary=True,
+    )
+    payload = bytes(payload_size)
+    return meta, payload
