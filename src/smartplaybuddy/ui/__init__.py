@@ -18,6 +18,8 @@ if sys.platform == "win32":
 
 window: MainWindow = None
 floating_ball: FloatingBall = None
+client = None
+
 
 def get_app():
     global window, floating_ball

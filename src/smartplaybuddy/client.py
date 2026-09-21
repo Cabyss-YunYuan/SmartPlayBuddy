@@ -772,6 +772,7 @@ def main():
                         return
                     client = Client(**Config.build_connect_config())
                     _state["client"] = client
+                    ui.client = client
                     _state["task"] = asyncio.ensure_future(client.connection)
                     asyncio.ensure_future(_start_bridge(client))
                 else:
@@ -779,6 +780,7 @@ def main():
                         _state["task"].cancel()
                     client = _state["client"]
                     _state["client"] = None
+                    ui.client = None
                     _state["task"] = None
                     asyncio.ensure_future(_teardown(client))
 
