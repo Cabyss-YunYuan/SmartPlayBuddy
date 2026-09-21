@@ -1,6 +1,9 @@
 {
   "app": {
-    "name": "SmartPlayBuddy"
+    "name": "SmartPlayBuddy",
+    "version": "0.0.1",
+    "publisher": "Cabyss",
+    "exe_name": "SmartPlayBuddy.exe"
   },
   "message": {
     "connecting": "Connecting...",

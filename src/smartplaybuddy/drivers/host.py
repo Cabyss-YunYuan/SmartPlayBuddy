@@ -24,13 +24,20 @@ def run_driver(driver_file: str, packages_dir: str = None):
     if packages_dir:
         sys.path.insert(0, packages_dir)
     
-    drivers_pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    drivers_parent = os.path.dirname(drivers_pkg_dir)
-    if drivers_parent not in sys.path:
-        sys.path.insert(0, drivers_parent)
-    
-    from drivers.base import BaseDriver
-    
+    if getattr(sys, 'frozen', False):
+        drivers_dir = os.path.join(os.path.dirname(sys.executable), "drivers")
+        drivers_parent = os.path.dirname(drivers_dir)
+        if drivers_parent not in sys.path:
+            sys.path.insert(0, drivers_parent)
+        from drivers.base import BaseDriver
+    else:
+        drivers_pkg_dir = os.path.dirname(os.path.abspath(__file__))
+        drivers_parent = os.path.dirname(drivers_pkg_dir)
+        if drivers_parent not in sys.path:
+            sys.path.insert(0, drivers_parent)
+        
+        from drivers.base import BaseDriver
+
     spec = importlib.util.spec_from_file_location("driver_module", driver_file)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

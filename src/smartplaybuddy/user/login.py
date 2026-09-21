@@ -26,6 +26,10 @@ ACCOUNT_NAME = "UserTokens"
 TOKEN_REFRESH_MARGIN = 60
 #: 等待浏览器回调的上限(秒)，防止重连线程被无限期挂住
 LOGIN_CALLBACK_TIMEOUT = 120
+#: refresh 遇到瞬态错误(网络不可达/超时)时的最大重试次数
+REFRESH_RETRY_COUNT = 3
+#: 每次重试前的等待秒数(线性递增：1s, 2s, 3s)
+REFRESH_RETRY_DELAY = 1.0
 
 #: 服务端 HttpOnly cookie 名，必须与 common/authtoken.go 的 CookieName / RefreshCookieName 保持一致
 ACCESS_COOKIE_NAME = "access_token"
@@ -134,28 +138,41 @@ def refresh_login(tokens: Tokens | None = None) -> Tokens | None:
     tokens = tokens or _load_tokens()
     if tokens is None or not tokens.refresh_token:
         return None
-    try:
-        req = urllib.request.Request(
-            f"{Config.server_host}/api/user/auth/refresh",
-            data=b"",
-            headers={"Cookie": f"{REFRESH_COOKIE_NAME}={tokens.refresh_token}"},
-            method="POST",
-        )
-        resp = urllib.request.urlopen(req)
-        body = json.loads(resp.read())
-        cookies = _extract_set_cookies(resp)
-        new_tokens = Tokens(
-            access_token=cookies.get(ACCESS_COOKIE_NAME, tokens.access_token),
-            refresh_token=cookies.get(REFRESH_COOKIE_NAME, tokens.refresh_token),
-            expires_in=int(body.get("expiresIn", 0)),
-        )
-        # refresh token 是轮转的：新的必须立刻落盘，否则下次刷新会拿旧的去换而吃 400
-        save_tokens(new_tokens)
-        logger.info(i18n.translate("user.login.auto_login_success", expires_in=new_tokens.expires_in))
-        return new_tokens
-    except Exception as e:
-        logger.warning(i18n.translate("user.login.auto_login_failed", error=str(e)))
-        return None
+
+    last_error = None
+    for attempt in range(REFRESH_RETRY_COUNT + 1):
+        try:
+            if attempt > 0:
+                time.sleep(REFRESH_RETRY_DELAY * attempt)
+                logger.info(i18n.translate("user.login.refresh_retry",
+                                           attempt=attempt, error=str(last_error)))
+            req = urllib.request.Request(
+                f"{Config.server_host}/api/user/auth/refresh",
+                data=b"",
+                headers={"Cookie": f"{REFRESH_COOKIE_NAME}={tokens.refresh_token}"},
+                method="POST",
+            )
+            resp = urllib.request.urlopen(req, timeout=15)
+            body = json.loads(resp.read())
+            cookies = _extract_set_cookies(resp)
+            new_tokens = Tokens(
+                access_token=cookies.get(ACCESS_COOKIE_NAME, tokens.access_token),
+                refresh_token=cookies.get(REFRESH_COOKIE_NAME, tokens.refresh_token),
+                expires_in=int(body.get("expiresIn", 0)),
+            )
+            # refresh token 是轮转的：新的必须立刻落盘，否则下次刷新会拿旧的去换而吃 400
+            save_tokens(new_tokens)
+            logger.info(i18n.translate("user.login.auto_login_success", expires_in=new_tokens.expires_in))
+            return new_tokens
+        except (OSError, TimeoutError, ConnectionError) as e:
+            last_error = e
+            if attempt < REFRESH_RETRY_COUNT:
+                continue
+            logger.warning(i18n.translate("user.login.auto_login_failed", error=str(e)))
+            return None
+        except Exception as e:
+            logger.warning(i18n.translate("user.login.auto_login_failed", error=str(e)))
+            return None
 
 _login_proc: multiprocessing.Process | None = None
 
@@ -294,7 +311,7 @@ async def ensure_tokens(tokens: Tokens | None = None, force_login: bool = False)
 
     if not force_login and tokens is not None and tokens.access_token:
         ttl = access_token_ttl(tokens.access_token)
-        if ttl is None or ttl > TOKEN_REFRESH_MARGIN:
+        if ttl is not None and ttl > TOKEN_REFRESH_MARGIN:
             logger.info(i18n.translate("user.login.tokens_reused"))
             Config.user = decode_jwt_payload(tokens.access_token)
             return tokens

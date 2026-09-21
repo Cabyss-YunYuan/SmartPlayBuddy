@@ -1,6 +1,9 @@
 {
   "app": {
-    "name": "智玩搭档"
+    "name": "智玩搭档",
+    "version": "0.0.1",
+    "publisher": "云渊",
+    "exe_name": "SmartPlayBuddy.exe"
   },
   "message": {
     "connecting": "正在连接...",

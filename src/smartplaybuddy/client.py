@@ -145,6 +145,8 @@ class Client(PermitMixin, ws.Connector):
         """处理 query 类型消息（只读查询）。"""
         if msg.Action == "streams":
             await self._handle_query_streams(msg, reply)
+        elif msg.Action == "permit":
+            await self._reply_permit_query(msg, reply)
         else:
             await reply.error(translate("client.query_action_not_found",
                                              action=msg.Action),

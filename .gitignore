@@ -2,3 +2,11 @@ tests
 logs
 src/smartplaybuddy.egg-info
 .env
+
+# Build artifacts
+dist/
+build/pyinstaller_temp/
+build/temp/
+output/
+runtime/
+*.spec.bak

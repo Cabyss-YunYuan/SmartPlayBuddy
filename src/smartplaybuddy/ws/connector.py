@@ -155,6 +155,11 @@ class Connector(ABC):
 
         try:
             tokens = await user.ensure_tokens(None, revoked)
+        except RuntimeError:
+            # 浏览器登录在 UI 模式下会抛 RuntimeError（无法自动弹窗），
+            # 不终止重连循环，等下一轮再试（网络恢复后 refresh 可能成功）。
+            logger.warning(i18n.translate("connector.auth_failed", error="interactive login required"))
+            return True
         except Exception as e:
             logger.error(i18n.translate("connector.auth_failed", error=e))
             return False

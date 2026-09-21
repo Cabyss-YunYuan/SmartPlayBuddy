@@ -344,8 +344,6 @@ class PermitMixin:
 
         if operate == "revoke":
             await self._do_revoke()
-        elif operate == "query":
-            await self._reply_permit_query(msg)
         else:
             await self.Error.error(
                 i18n.translate("permit.unsupported_operate", operate=operate),
@@ -451,7 +449,7 @@ class PermitMixin:
         except asyncio.CancelledError:
             raise
 
-    async def _reply_permit_query(self, msg):
+    async def _reply_permit_query(self, msg, reply):
         lock = self._event_lock
         if lock:
             result = {
@@ -466,7 +464,7 @@ class PermitMixin:
             Type="response", Action="permit",
             To=msg.From, RequestID=msg.RequestID, Data=result,
         )
-        await self._server_reply.send_json(resp)
+        await reply.send_json(resp.to_json())
 
     async def revoke_permit(self):
         await self._do_revoke()

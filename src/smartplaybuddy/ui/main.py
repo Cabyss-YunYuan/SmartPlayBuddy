@@ -136,7 +136,7 @@ class MainWindow(QMainWindow):
         web_url = self.web_url
         if tokens and tokens.access_token:
             ttl = access_token_ttl(tokens.access_token)
-            if ttl is None or ttl > TOKEN_REFRESH_MARGIN:
+            if ttl is not None and ttl > TOKEN_REFRESH_MARGIN:
                 self._apply_tokens(tokens)
                 return
             # access token 已过期/临近过期：先展示窗口，再在后台线程刷新，避免阻塞 UI

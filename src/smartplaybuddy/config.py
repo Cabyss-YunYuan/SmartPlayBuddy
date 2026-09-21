@@ -2,6 +2,7 @@
 全局配置。集中管理服务地址、版本号等常量。
 支持通过项目根目录 .env 文件或系统环境变量覆盖默认值。
 """
+import json
 import os
 import re
 import platform
@@ -34,12 +35,21 @@ def _load_dotenv():
             os.environ.setdefault(key, value)
 
 
+def _load_app_version() -> str:
+    locale_file = Path(__file__).resolve().parent / "utils" / "i18n" / "locales" / "en_US.json"
+    try:
+        with open(locale_file, encoding="utf-8") as f:
+            return "v" + json.load(f)["app"]["version"]
+    except Exception:
+        return "v0.0.0"
+
+
 class Config:
     """应用全局配置。"""
 
     _load_dotenv()
 
-    version: str = "v0.0.1"
+    version: str = _load_app_version()
 
     server_host: str = os.environ.get(
         "SMTPLAY_SERVER_HOST", "https://smtplay.cabyss.cn"
