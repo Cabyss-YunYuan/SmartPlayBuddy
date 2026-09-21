@@ -39,7 +39,7 @@ class MainWindow(QMainWindow):
         self._web_view.setPage(QWebEnginePage(self._profile, self._web_view))
         self._web_view.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
         self.setCentralWidget(self._web_view)
-        self._apply_screen_geometry(1280, 800)
+        self._apply_screen_geometry()
 
         self._access_token = ""
         self._refresh_token = ""
@@ -58,13 +58,12 @@ class MainWindow(QMainWindow):
         self._force_quit = False
         self._init_tray()
 
-    def _apply_screen_geometry(self, default_width, default_height):
-        """按当前屏幕可用区域将窗口缩小为默认尺寸的 2/3 并在可用区域内水平、垂直居中；
-        尺寸超出可用区域时裁剪到可用区域内。"""
+    def _apply_screen_geometry(self):
+        """按当前屏幕可用区域将窗口设置为屏幕大小的 4/5，并在可用区域内水平、垂直居中。"""
         screen = self.screen() or QApplication.primaryScreen()
         avail = screen.availableGeometry()
-        width = min(int(default_width * 2 / 3), avail.width())
-        height = min(int(default_height * 2 / 3), avail.height())
+        width = int(avail.width() * 4 / 5)
+        height = int(avail.height() * 4 / 5)
         self.resize(width, height)
         x = avail.left() + (avail.width() - width) // 2
         y = avail.top() + (avail.height() - height) // 2
@@ -91,7 +90,13 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(self._quit_from_tray)
         self._tray_icon.setContextMenu(self._tray_menu)
 
+        self._tray_icon.activated.connect(self._on_tray_activated)
         self._tray_icon.show()
+
+    def _on_tray_activated(self, reason):
+        """鼠标左键点击托盘图标时唤起主窗口。"""
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self._show_from_tray()
 
     def _show_from_tray(self):
         """从托盘重新显示并激活主窗口。"""
@@ -164,13 +169,13 @@ class MainWindow(QMainWindow):
         self._set_authenticated(True)
 
     def _show_login_dialog(self):
-        """弹出登录对话框，成功后刷新主窗口；取消则保留当前状态。"""
+        """弹出登录对话框，成功后刷新主窗口；取消则弹登录框。"""
         from .login import gui_login
-        try:
-            tokens = gui_login(self.config.server_host)
-        except RuntimeError:
-            return
-        self._apply_tokens(tokens)
+        gui_login(
+            self.config.server_host,
+            on_success=self._apply_tokens,
+            on_cancelled=lambda: QTimer.singleShot(300, self._show_login_dialog),
+        )
 
     def _inject_cookies(self, tokens: Tokens):
         """从 keyring 读取令牌，注入 cookie 和 localStorage 到 Web 视图。"""
