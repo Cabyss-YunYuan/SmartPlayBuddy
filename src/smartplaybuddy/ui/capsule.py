@@ -99,7 +99,6 @@ class FloatingBall(QFrame):
         screen_geo = screen.availableGeometry()
 
         self._base_size = int(min(screen_geo.width(), screen_geo.height()) * 0.04)
-        self._base_size = max(36, min(self._base_size, 72))
         self._expanded_width = int(self._base_size * 4.0)
         self._calc_panel_layout()
 

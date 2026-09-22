@@ -78,6 +78,8 @@ class Client(PermitMixin, ws.Connector):
         self._resolved_permission_rids: set[str] = set()
         #: 我们发出的 request 的 RID 集合，用于校验 response 是否合法
         self._outgoing_request_rids: set[str] = set()
+        #: permission 广播 rid 映射: rid1(mod的permit rid) → rid2(广播的permission rid)
+        self._rid1_to_rid2: dict[str, str] = {}
         # ── 事件锁探针 ──
         self._probe_task: asyncio.Task | None = None
         self._probe_rids: set[str] = set()

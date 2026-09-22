@@ -16,6 +16,7 @@ from ..utils import i18n
 from ..utils import logger
 from ..utils import translate
 from ..config import Config
+from .message.message import generate_rid
 
 logger = logger.getChild("Permit")
 
@@ -141,21 +142,28 @@ class PermitMixin:
         if not (self_prefix and from_addr == self_prefix):
             return
 
-        if not self._pending_auth:
+        rid1 = data.get("permit_rid") or msg.RequestID
+        if not rid1:
             return
 
-        rid = msg.RequestID
-        if rid not in self._pending_auth_requests:
+        if rid1 not in self._pending_auth_requests:
+            return
+
+        rid2 = self._rid1_to_rid2.get(rid1)
+        if not rid2:
+            return
+
+        if rid2 in self._resolved_permission_rids:
             return
 
         description = data.get("description", "")
         requester = data.get("requester", "")
 
         future = asyncio.get_event_loop().create_future()
-        self._pending_permission_dialogs[rid] = {"future": future, "dialog": None}
+        self._pending_permission_dialogs[rid2] = {"future": future, "dialog": None}
 
         if getattr(Config, "_ui", False):
-            asyncio.ensure_future(self._show_permission_dialog(requester or from_addr, description, future, rid))
+            asyncio.ensure_future(self._show_permission_dialog(requester or from_addr, description, future, rid2))
         else:
             from ..ui.request import prompt_auth_cli
             asyncio.ensure_future(
@@ -164,46 +172,47 @@ class PermitMixin:
 
         approved = await future
 
-        self._pending_permission_dialogs.pop(rid, None)
+        self._pending_permission_dialogs.pop(rid2, None)
 
-        if rid in self._resolved_permission_rids:
+        if rid2 in self._resolved_permission_rids:
             return
 
-        info = self._pending_auth_requests.pop(rid, None)
+        info = self._pending_auth_requests.pop(rid1, None)
+        self._rid1_to_rid2.pop(rid1, None)
         if not info:
             return
-        self._resolved_permission_rids.add(rid)
+        self._resolved_permission_rids.add(rid2)
         self._pending_auth = False
 
         if approved:
             mod_address = info["from"]
-            self._passes[rid] = {
+            self._passes[rid1] = {
                 "from": mod_address,
                 "description": info.get("description", ""),
             }
             resp = self.Message(
                 Type="response", Action="permit",
-                To=mod_address, RequestID=rid,
-                Data={"status": "approved", "request_id": rid},
+                To=mod_address, RequestID=rid1,
+                Data={"status": "approved", "request_id": rid1},
             )
             await self.send(resp)
-            logger.info(i18n.translate("permit.request_approved", request_id=rid))
-            self._start_pass_probe(rid, mod_address)
+            logger.info(i18n.translate("permit.request_approved", request_id=rid1))
+            self._start_pass_probe(rid1, mod_address)
             await self._broadcast_permit_state({
                 "from": mod_address,
                 "description": info.get("description", ""),
-                "request_id": rid,
+                "request_id": rid1,
             })
-            await self._broadcast_permission_resolved(rid, "approved")
+            await self._broadcast_permission_resolved(rid2, "approved")
         else:
             resp = self.Message(
                 Type="response", Action="permit",
-                To=info["from"], RequestID=rid,
-                Data={"status": "rejected", "request_id": rid},
+                To=info["from"], RequestID=rid1,
+                Data={"status": "rejected", "request_id": rid1},
             )
             await self.send(resp)
-            logger.info(i18n.translate("permit.request_rejected", request_id=rid))
-            await self._broadcast_permission_resolved(rid, "rejected")
+            logger.info(i18n.translate("permit.request_rejected", request_id=rid1))
+            await self._broadcast_permission_resolved(rid2, "rejected")
 
     async def _show_permission_dialog(self, requester, description, future, rid):
         from ..ui.request import AuthRequestDialog
@@ -233,34 +242,41 @@ class PermitMixin:
                 future.set_result(False)
 
     async def _handle_permission_approved(self, msg):
-        rid = msg.RequestID
-        from_addr = msg.From
-        self_prefix = self._self_address_prefix()
+        data = msg.Data if isinstance(msg.Data, dict) else {}
 
-        dialog_info = self._pending_permission_dialogs.pop(rid, None)
+        if data.get("source") == "self":
+            return
+
+        rid2 = msg.RequestID
+        if not rid2:
+            return
+
+        if rid2 in self._resolved_permission_rids:
+            return
+
+        rid1 = data.get("permit_rid")
+        if not rid1:
+            return
+
+        status = data.get("status", "unknown")
+        resolved_by = data.get("resolved_by", msg.From or "unknown")
+
+        dialog_info = self._pending_permission_dialogs.pop(rid2, None)
         if dialog_info:
             fut = dialog_info.get("future")
             if fut and not fut.done():
-                fut.set_result(False)
+                fut.set_result(status == "approved")
             dlg = dialog_info.get("dialog")
             if dlg:
                 dlg.close()
 
-        if self_prefix and from_addr == self_prefix:
-            return
+        self._resolved_permission_rids.add(rid2)
 
-        data = msg.Data if isinstance(msg.Data, dict) else {}
-        status = data.get("status", "unknown")
-        resolved_by = data.get("resolved_by", from_addr)
-
-        if rid in self._resolved_permission_rids:
-            return
-        self._resolved_permission_rids.add(rid)
-
-        info = self._pending_auth_requests.pop(rid, None)
+        info = self._pending_auth_requests.pop(rid1, None)
+        self._rid1_to_rid2.pop(rid1, None)
         if not info:
             logger.info(i18n.translate("permit.broadcast_resolved",
-                                       request_id=rid, resolved_by=resolved_by, status=status))
+                                       request_id=rid1, resolved_by=resolved_by, status=status))
             return
 
         self._pending_auth = False
@@ -268,30 +284,30 @@ class PermitMixin:
         description = info.get("description", "")
 
         if status == "approved":
-            self._passes[rid] = {"from": mod_address, "description": description}
+            self._passes[rid1] = {"from": mod_address, "description": description}
             resp = self.Message(
                 Type="response", Action="permit",
-                To=mod_address, RequestID=rid,
-                Data={"status": "approved", "request_id": rid},
+                To=mod_address, RequestID=rid1,
+                Data={"status": "approved", "request_id": rid1},
             )
             await self.send(resp)
-            logger.info(i18n.translate("permit.remote_approved", request_id=rid, from_addr=resolved_by))
-            self._start_pass_probe(rid, mod_address)
+            logger.info(i18n.translate("permit.remote_approved", request_id=rid1, from_addr=resolved_by))
+            self._start_pass_probe(rid1, mod_address)
             await self._broadcast_permit_state({
-                "from": mod_address, "description": description, "request_id": rid,
+                "from": mod_address, "description": description, "request_id": rid1,
             })
         else:
             resp = self.Message(
                 Type="response", Action="permit",
-                To=mod_address, RequestID=rid,
-                Data={"status": "rejected", "request_id": rid},
+                To=mod_address, RequestID=rid1,
+                Data={"status": "rejected", "request_id": rid1},
             )
             await self.send(resp)
-            logger.info(i18n.translate("permit.remote_rejected", request_id=rid, from_addr=resolved_by))
+            logger.info(i18n.translate("permit.remote_rejected", request_id=rid1, from_addr=resolved_by))
 
-        await self._broadcast_permission_resolved(rid, status)
+        await self._broadcast_permission_resolved(rid2, status)
 
-    async def _broadcast_permission_resolved(self, rid, status):
+    async def _broadcast_permission_resolved(self, rid2, status):
         uid = ""
         if isinstance(self.session_info, dict):
             uid = str(self.session_info.get("userId", ""))
@@ -300,13 +316,19 @@ class PermitMixin:
             uid = _resolve_uid()
         if not uid:
             return
-        await self.send(self.Message(
+        new_rid = generate_rid()
+        self._outgoing_request_rids.add(new_rid)
+        broadcast_msg = self.Message(
             Type="response", Action="permission",
-            To=f"client|web:{uid}:*", RequestID=rid,
-            Data={"status": status, "resolved_by": self._self_address_prefix()},
-        ))
+            To=f"client|web:{uid}:*", RequestID=new_rid,
+            Data={"status": status, "resolved_by": self._self_address_prefix(),
+                  "permit_rid": rid2, "source": "self"},
+        )
+        await self.send(broadcast_msg)
+        if self.bridge:
+            self.bridge.broadcast_to_web(broadcast_msg)
 
-    async def _broadcast_permission_request(self, rid, mod_address, description):
+    async def _broadcast_permission_request(self, rid1, mod_address, description):
         uid = ""
         if isinstance(self.session_info, dict):
             uid = str(self.session_info.get("userId", ""))
@@ -315,11 +337,18 @@ class PermitMixin:
             uid = _resolve_uid()
         if not uid:
             return
-        await self.send(self.Message(
+        rid2 = generate_rid()
+        self._rid1_to_rid2[rid1] = rid2
+        self._outgoing_request_rids.add(rid2)
+        broadcast_msg = self.Message(
             Type="request", Action="permission",
-            To=f"client|web:{uid}:*", RequestID=rid,
-            Data={"requester": mod_address, "description": description},
-        ))
+            To=f"client|web:{uid}:*", RequestID=rid2,
+            Data={"requester": mod_address, "description": description,
+                  "permit_rid": rid1, "source": "self"},
+        )
+        await self.send(broadcast_msg)
+        if self.bridge:
+            self.bridge.broadcast_to_web(broadcast_msg)
 
     async def _handle_event(self, msg):
         data = msg.Data if isinstance(msg.Data, dict) else {}

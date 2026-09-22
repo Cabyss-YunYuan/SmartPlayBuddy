@@ -66,7 +66,11 @@
       "token_exchange_failed": "Token exchange failed: no access_token received",
       "unknown_error": "Unknown login error",
       "ui_mode_no_auto_login": "UI mode: login is handled by the web app, not auto-triggered",
-      "tokens_reused": "Tokens valid, reusing existing login"
+      "tokens_reused": "Tokens valid, reusing existing login",
+      "needs_interactive_login": "Tokens unavailable, interactive login required",
+      "refresh_retry": "Token refresh failed, retry attempt {attempt}: {error}",
+      "browser_success": "Login successful, please return to the app",
+      "browser_failed": "Login failed, please try again"
     }
   },
   "driver": {
@@ -86,6 +90,7 @@
     "rescanned": "Drivers rescanned",
     "stream_stopped": "Stream '{stream_id}' stopped: {name}",
     "installing_dependencies": "Installing dependencies for '{name}'...",
+    "waiting_install": "Waiting for driver '{name}' dependency installation...",
     "install_dependencies_failed": "Failed to install dependencies: {error}",
     "no_python_runtime": "Python runtime not found, skipping dependency installation",
     "discovered": "Driver discovered: {name} ({path})",

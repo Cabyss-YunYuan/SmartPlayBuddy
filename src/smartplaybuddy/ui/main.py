@@ -136,7 +136,8 @@ class MainWindow(QMainWindow):
 
     def _init_auth(self):
         """从 keyring 加载令牌：有效则注入 cookie；access token 过期但 refresh token
-        仍可用时后台静默刷新（不阻塞 Qt 主线程）；都失败才加载 Web 应用并弹出登录对话框。"""
+        仍可用时后台静默刷新（不阻塞 Qt 主线程）；都失败则直接展示 Web 应用，
+        由内置页面自身的登录流程完成认证。"""
         tokens = _load_tokens()
         web_url = self.web_url
         if tokens and tokens.access_token:
@@ -144,38 +145,26 @@ class MainWindow(QMainWindow):
             if ttl is not None and ttl > TOKEN_REFRESH_MARGIN:
                 self._apply_tokens(tokens)
                 return
-            # access token 已过期/临近过期：先展示窗口，再在后台线程刷新，避免阻塞 UI
             self._web_view.load(QUrl(web_url))
             self.show()
             asyncio.ensure_future(self._refresh_tokens(tokens))
             return
         self._web_view.load(QUrl(web_url))
         self.show()
-        QTimer.singleShot(300, self._show_login_dialog)
 
     async def _refresh_tokens(self, tokens: Tokens):
-        """在线程池中执行同步的 refresh_login，避免阻塞 Qt 主线程；失败则弹登录框。"""
+        """在线程池中执行同步的 refresh_login，避免阻塞 Qt 主线程；
+        失败则不做额外处理——Web 应用检测到无有效会话会自行跳转登录页。"""
         loop = asyncio.get_running_loop()
         refreshed = await loop.run_in_executor(None, refresh_login, tokens)
         if refreshed is not None:
             self._apply_tokens(refreshed)
-        else:
-            QTimer.singleShot(0, self._show_login_dialog)
 
     def _apply_tokens(self, tokens: Tokens):
         """令牌可用：写入 Config.user、注入 cookie 并置为已认证。"""
         Config.user = decode_jwt_payload(tokens.access_token)
         self._inject_cookies(tokens)
         self._set_authenticated(True)
-
-    def _show_login_dialog(self):
-        """弹出登录对话框，成功后刷新主窗口；取消则弹登录框。"""
-        from .login import gui_login
-        gui_login(
-            self.config.server_host,
-            on_success=self._apply_tokens,
-            on_cancelled=lambda: QTimer.singleShot(300, self._show_login_dialog),
-        )
 
     def _inject_cookies(self, tokens: Tokens):
         """从 keyring 读取令牌，注入 cookie 和 localStorage 到 Web 视图。"""

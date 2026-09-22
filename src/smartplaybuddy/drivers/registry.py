@@ -162,6 +162,7 @@ class DriverRegistry:
         self._info: Dict[str, dict] = {}
         self._scanned = False
         self._driver_dirs = [Path(__file__).resolve().parent.parent / "drivers"]
+        self._install_events: Dict[str, threading.Event] = {}
 
     def get_callable(self, action: str) -> Optional[Callable]:
         self._ensure_scanned()
@@ -236,7 +237,7 @@ class DriverRegistry:
                         self._info[act] = info
                 logger.debug(translate("driver.discovered", name=driver_name, path=entry))
                 
-                self._install_dependencies(str(entry), manifest)
+                self._install_dependencies_async(str(entry), manifest)
                 
             except Exception as e:
                 logger.error(translate("driver.manifest_read_failed", name=entry.name, error=e))
@@ -254,6 +255,8 @@ class DriverRegistry:
         if name in self._procs:
             return self._procs[name]
 
+        self._wait_install(name)
+
         driver_file = str(Path(info["path"]) / manifest.get("entry", "driver.py"))
         packages_dir = str(Path(info["path"]) / "packages")
         cmd = self._build_cmd(driver_file, packages_dir if Path(packages_dir).exists() else None)
@@ -262,10 +265,17 @@ class DriverRegistry:
         self._procs[name] = proc
         return proc
 
-    def _install_dependencies(self, driver_dir: str, manifest: dict):
+    def _wait_install(self, driver_name: str, timeout: float = 120.0):
+        event = self._install_events.get(driver_name)
+        if event is not None and not event.is_set():
+            logger.debug(translate("driver.waiting_install", name=driver_name))
+            event.wait(timeout=timeout)
+
+    def _install_dependencies_async(self, driver_dir: str, manifest: dict):
         req_file = manifest.get("requirements", "requirements.txt")
         req_path = Path(driver_dir) / req_file
         packages_dir = Path(driver_dir) / "packages"
+        name = manifest["name"]
 
         if not req_path.exists():
             return
@@ -285,11 +295,32 @@ class DriverRegistry:
             "--target", str(packages_dir),
             "--quiet",
         ]
-        logger.debug(translate("driver.installing_dependencies", name=manifest["name"]))
+
+        event = threading.Event()
+        self._install_events[name] = event
+        thread = threading.Thread(
+            target=self._do_install, args=(cmd, name, event), daemon=True
+        )
+        thread.start()
+
+    def _do_install(self, cmd: list, name: str, event: threading.Event):
+        logger.debug(translate("driver.installing_dependencies", name=name))
         try:
-            subprocess.check_call(cmd, timeout=120)
+            subprocess.check_call(
+                cmd,
+                timeout=120,
+                creationflags=_CREATION_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+        except subprocess.CalledProcessError as e:
+            stderr_output = e.stderr.decode("utf-8", errors="replace") if e.stderr else ""
+            logger.error(translate("driver.install_dependencies_failed",
+                                        error=stderr_output or str(e)))
         except Exception as e:
             logger.error(translate("driver.install_dependencies_failed", error=e))
+        finally:
+            event.set()
 
     def _all_packages_installed(self, packages_dir: Path, req_path: Path) -> bool:
         if not any(packages_dir.iterdir()):
@@ -392,6 +423,9 @@ class DriverRegistry:
         for proc in self._procs.values():
             proc.stop()
         self._procs.clear()
+        for event in self._install_events.values():
+            event.set()
+        self._install_events.clear()
 
 
 class DriversDict:

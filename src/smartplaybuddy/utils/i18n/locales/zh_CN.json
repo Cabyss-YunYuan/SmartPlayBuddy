@@ -66,7 +66,11 @@
       "token_exchange_failed": "令牌兑换失败，未收到 access_token",
       "unknown_error": "未知登录错误",
       "ui_mode_no_auto_login": "UI 模式：登录由 Web 应用处理，不会自动触发",
-      "tokens_reused": "令牌有效，复用已有登录"
+      "tokens_reused": "令牌有效，复用已有登录",
+      "needs_interactive_login": "令牌不可用，需要进行交互式登录",
+      "refresh_retry": "刷新令牌失败，第 {attempt} 次重试: {error}",
+      "browser_success": "登录成功，请返回应用继续操作",
+      "browser_failed": "登录失败，请重试"
     }
   },
   "driver": {
@@ -86,6 +90,7 @@
     "rescanned": "驱动已重新扫描",
     "stream_stopped": "流 '{stream_id}' 已停止: {name}",
     "installing_dependencies": "正在为 '{name}' 安装依赖...",
+    "waiting_install": "等待驱动 '{name}' 依赖安装完成...",
     "install_dependencies_failed": "安装依赖失败: {error}",
     "no_python_runtime": "未找到 Python 运行时，跳过依赖安装",
     "discovered": "发现驱动: {name} ({path})",
